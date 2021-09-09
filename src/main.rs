@@ -1,8 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate clap;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use clap::{Arg, App};
 
 #[derive(Debug,PartialEq)]
 struct Entry {
@@ -92,7 +94,7 @@ mod tests {
     #[test]
     #[ignore]  // It's slow.
     fn test_can_read_entire_cmudict() {
-        let lines = read_cmudict_to_lines();
+        let lines = read_cmudict_to_lines("./cmudict.dict");
         for line in lines {
             let entry = Entry::new(&line);
             println!("Read {:?}", entry);
@@ -102,8 +104,8 @@ mod tests {
 }
 
 // TODO: Idiomatic error handling.
-fn read_cmudict_to_lines() -> Vec<String> {
-    let f = File::open("./cmudict.dict").unwrap();
+fn read_cmudict_to_lines(path: &str) -> Vec<String> {
+    let f = File::open(path).unwrap();
     let br = BufReader::new(f);
     let mut v = vec![];
     for line in br.lines() {
@@ -113,8 +115,19 @@ fn read_cmudict_to_lines() -> Vec<String> {
 }
 
 fn main() {
+    let matches = App::new("poet")
+                          .version("0.1.0")
+                          .arg(Arg::with_name("dict")
+                              .short("d")
+                              .long("dict")
+                              .value_name("FILE")
+                              .help("Path to the cmudict.dict dictionary file.")
+                              .takes_value(true))
+                          .get_matches();
+    let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
+
     println!("Hello, world!");
 
-    let cmudict_lines = read_cmudict_to_lines();
+    let cmudict_lines = read_cmudict_to_lines(cmudict_path);
     println!("Read {} lines.", cmudict_lines.len());
 }

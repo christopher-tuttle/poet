@@ -30,10 +30,20 @@ _To start, this is just a scratch pile of things that may be useful._
     * Supporting phonetic annotation.
     * Integration with Google Docs to pull text from there.
 
-## Webserver crate: Rocket.rs
+## Notes and Decisions on dependencies, etc.
+
+### Webserver crate: Rocket.rs
 
 I looked at `warp`, `hyper`, and `rocket`, and it looks like `rocket` is
 well-used, developer-friendly, and actively staffed. So Rocket it is.
+
+### Command-line flags library: `clap`
+
+I started by looking at std::env::args, which would be not too bad for
+very simple stuff, but something closer to `getopt` would be better. Based
+on some searches, it looks like `clap` is intended for this use, and while
+it hasn't been updated in over a year, it does have nearly 2500 commits in
+the repo, and the examples look easy to follow. Good enough for now.
 
 ## Notes on word analysis
 
