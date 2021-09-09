@@ -90,6 +90,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]  // It's slow.
     fn test_can_read_entire_cmudict() {
         let lines = read_cmudict_to_lines();
         for line in lines {
