@@ -48,36 +48,56 @@ impl Entry {
 
         return result;
     }
-
-    // TODO: This is a very silly way to avoid dealing with string literals in tests.
-    fn new2(txt: &str, phnms: &Vec<&str>) -> Entry {
-        Entry {
-            text: String::from(txt),
-            phonemes: phnms.iter().map(|&x| String::from(x)).collect(),
-            variant: 1,
-        }
-    }
 }
 
-#[test]
-fn test_cmudict_entry_parser() {
-    // Test parse of regular word.
-    assert_eq!(Entry::new("ampersand AE1 M P ER0 S AE2 N D"),
-               Entry::new2("ampersand", &vec!["AE1", "M", "P", "ER0", "S", "AE2", "N", "D"]));
-    // Everything after "#" should be ignored.
-    assert_eq!(Entry::new("gdp G IY1 D IY1 P IY1 # abbrev"),
-               Entry::new2("gdp", &vec!["G", "IY1", "D", "IY1", "P", "IY1"]));
-    // Test parse with single quote in term.
-    assert_eq!(Entry::new("'frisco F R IH1 S K OW0"),
-               Entry::new2("'frisco", &vec!["F", "R", "IH1", "S", "K", "OW0"]));
-    // Test parse with periods in term.
-    assert_eq!(Entry::new("a.m. EY2 EH1 M"),
-               Entry::new2("a.m.", &vec!["EY2", "EH1", "M"]));
-    // Test parse of alternate words. No special casing for now.
-    assert_eq!(Entry::new("amounted(2) AH0 M AW1 N IH0 D"),
-               Entry { text: String::from("amounted(2)"),
-               phonemes: vec!["AH0", "M", "AW1", "N", "IH0", "D"].iter().map(|&x| String::from(x)).collect(),
-                   variant: 2});
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parser_handles_basic_entries() {
+        let entry = Entry::new("ampersand AE1 M P ER0 S AE2 N D");
+        assert_eq!(entry.text, "ampersand");
+        assert_eq!(entry.phonemes, vec!["AE1", "M", "P", "ER0", "S", "AE2", "N", "D"]);
+    }
+
+    #[test]
+    fn test_parser_ignores_comments() {
+        // Everything after # should be ignored.
+        let entry = Entry::new("gdp G IY1 D IY1 P IY1 # abbrev ## IGN");
+        assert_eq!(entry.text, "gdp");
+        assert_eq!(entry.phonemes, vec!["G", "IY1", "D", "IY1", "P", "IY1"]);
+    }
+
+    #[test]
+    fn test_parser_with_punctuation_in_terms() {
+        assert_eq!(Entry::new("'frisco F R IH1 S K OW0").text, "'frisco");
+        assert_eq!(Entry::new("a.m. EY2 EH1 M").text, "a.m.");
+    }
+
+    #[test]
+    fn test_parser_with_alternate_words() {
+        let entry = Entry::new("amounted(2) AH0 M AW1 N IH0 D");
+        assert_eq!(entry.text, "amounted(2)");
+        assert_eq!(entry.phonemes, vec!["AH0", "M", "AW1", "N", "IH0", "D"]);
+        assert_eq!(entry.variant, 2);
+    }
+
+    #[test]
+    fn test_default_variant_is_one() {
+        let entry = Entry::new("a AH0");
+        assert_eq!(entry.variant, 1);
+    }
+
+    #[test]
+    fn test_can_read_entire_cmudict() {
+        let lines = read_cmudict_to_lines();
+        for line in lines {
+            let entry = Entry::new(&line);
+            println!("Read {:?}", entry);
+        }
+        // The test is successful if it doesn't crash.
+    }
 }
 
 // TODO: Idiomatic error handling.
