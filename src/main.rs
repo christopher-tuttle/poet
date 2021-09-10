@@ -2,21 +2,22 @@
 extern crate lazy_static;
 extern crate clap;
 use clap::{App, Arg};
-use regex::Regex;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+pub mod poet {
+pub mod dictionary {
+
 #[derive(Debug, PartialEq)]
-struct Entry {
-    text: String,
-    phonemes: Vec<String>,
-    variant: i32,
-    syllables: i32,
+pub struct Entry {
+    pub text: String,
+    pub phonemes: Vec<String>,
+    pub variant: i32,
+    pub syllables: i32,
 }
 
 impl Entry {
-    fn new(line: &str) -> Entry {
+    pub fn new(line: &str) -> Entry {
         let mut trimmed_line = line;
         // Strip comments if present ('#' through the end of line).
         let comment_start = line.find('#');
@@ -25,6 +26,7 @@ impl Entry {
         }
 
         // Split the rest on whitespace and use regexen to pull out the important parts.
+        use regex::Regex;
         lazy_static! {
             // This matches the term and optional (N) suffix, e.g. from "aalborg(2)".
             // Capture group 1 has the term text and capture 3 has the integer, if any.
@@ -60,41 +62,40 @@ impl Entry {
 }
 
 #[derive(Debug)]
-struct Dictionary {
-    entries: HashMap<String, Entry>,
+pub struct Dictionary {
+    entries: std::collections::HashMap<String, Entry>,
 }
 
 impl Dictionary {
-    fn new() -> Dictionary {
+    pub fn new() -> Dictionary {
         Dictionary {
-            entries: HashMap::new()
+            entries: std::collections::HashMap::new()
         }
     }
 
-    fn insert(&mut self, entry: Entry) {
+    pub fn insert(&mut self, entry: Entry) {
         self.entries.insert(entry.text.clone(), entry);
     }
 
-    fn insert_raw(&mut self, line: &str) {
+    pub fn insert_raw(&mut self, line: &str) {
         let entry = Entry::new(line);
         self.entries.insert(entry.text.clone(), entry);
     }
 
-    fn insert_all(&mut self, lines: &Vec<&str>) {
+    pub fn insert_all(&mut self, lines: &Vec<&str>) {
         for line in lines {
             self.insert_raw(line);
         }
     }
 
-    fn lookup(&self, term: &str) -> Option<&Entry> {
+    pub fn lookup(&self, term: &str) -> Option<&Entry> {
         return self.entries.get(term);
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         return self.entries.len();
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -136,17 +137,6 @@ mod tests {
     fn test_default_variant_is_one() {
         let entry = Entry::new("a AH0");
         assert_eq!(entry.variant, 1);
-    }
-
-    #[test]
-    #[ignore] // It's slow.
-    fn test_can_read_entire_cmudict() {
-        let lines = read_cmudict_to_lines("./cmudict.dict");
-        for line in lines {
-            let entry = Entry::new(&line);
-            println!("Read {:?}", entry);
-        }
-        // The test is successful if it doesn't crash.
     }
 
     #[test]
@@ -205,6 +195,28 @@ mod tests {
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
         assert_eq!(dict.len(), 3);
+    }
+
+} // mod tests
+
+}  // mod dictionary
+}  // mod poet
+
+use crate::poet::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore] // It's slow.
+    fn test_can_read_entire_cmudict() {
+        let lines = read_cmudict_to_lines("./cmudict.dict");
+        for line in lines {
+            let entry = dictionary::Entry::new(&line);
+            println!("Read {:?}", entry);
+        }
+        // The test is successful if it doesn't crash.
     }
 
     #[test]
@@ -285,7 +297,7 @@ fn read_cmudict_to_lines(path: &str) -> Vec<String> {
     return v;
 }
 
-fn handle_term_query(query: &str, dict: &Dictionary) {
+fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
     if let Some(entry) = dict.lookup(query) {
         println!("Found {:?}", entry);
     } else {
@@ -293,7 +305,7 @@ fn handle_term_query(query: &str, dict: &Dictionary) {
     }
 }
 
-fn handle_input_file(path: &str, dict: &Dictionary) {
+fn handle_input_file(path: &str, dict: &dictionary::Dictionary) {
     let f = File::open(path).unwrap();
     let br = BufReader::new(f);
     for line in br.lines() {
@@ -357,7 +369,7 @@ fn main() {
     let cmudict_lines = read_cmudict_to_lines(cmudict_path);
     println!("Read {} lines.", cmudict_lines.len());
 
-    let mut dict = Dictionary::new();
+    let mut dict = poet::dictionary::Dictionary::new();
     dict.insert_all(&cmudict_lines.iter().map(|s| s as &str).collect());
 
     if let Some(q) = matches.value_of("query") {
