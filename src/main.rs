@@ -1,12 +1,13 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate clap;
+use clap::{App, Arg};
 use regex::Regex;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use clap::{Arg, App};
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 struct Entry {
     text: String,
     phonemes: Vec<String>,
@@ -36,7 +37,7 @@ impl Entry {
         let term_cap = TERM_RE.captures(&tokens[0]).unwrap();
         let mut result = Entry {
             text: String::from(&term_cap[0]),
-            phonemes: Vec::with_capacity(tokens.len()-1),
+            phonemes: Vec::with_capacity(tokens.len() - 1),
             variant: 1,
         };
         if term_cap.get(3).is_some() {
@@ -52,6 +53,43 @@ impl Entry {
     }
 }
 
+#[derive(Debug)]
+struct Dictionary {
+    entries: HashMap<String, Entry>,
+}
+
+impl Dictionary {
+    fn new() -> Dictionary {
+        Dictionary {
+            entries: HashMap::new()
+        }
+    }
+
+    fn insert(&mut self, entry: Entry) {
+        self.entries.insert(entry.text.clone(), entry);
+    }
+
+    fn insert_raw(&mut self, line: &str) {
+        let entry = Entry::new(line);
+        self.entries.insert(entry.text.clone(), entry);
+    }
+
+    fn insert_all(&mut self, lines: &Vec<&str>) {
+        for line in lines {
+            self.insert_raw(line);
+        }
+    }
+
+    fn lookup(&self, term: &str) -> Option<&Entry> {
+        return self.entries.get(term);
+    }
+
+    fn len(&self) -> usize {
+        return self.entries.len();
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,7 +98,10 @@ mod tests {
     fn test_parser_handles_basic_entries() {
         let entry = Entry::new("ampersand AE1 M P ER0 S AE2 N D");
         assert_eq!(entry.text, "ampersand");
-        assert_eq!(entry.phonemes, vec!["AE1", "M", "P", "ER0", "S", "AE2", "N", "D"]);
+        assert_eq!(
+            entry.phonemes,
+            vec!["AE1", "M", "P", "ER0", "S", "AE2", "N", "D"]
+        );
     }
 
     #[test]
@@ -92,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]  // It's slow.
+    #[ignore] // It's slow.
     fn test_can_read_entire_cmudict() {
         let lines = read_cmudict_to_lines("./cmudict.dict");
         for line in lines {
@@ -100,6 +141,56 @@ mod tests {
             println!("Read {:?}", entry);
         }
         // The test is successful if it doesn't crash.
+    }
+
+    #[test]
+    fn test_dictionary_insert() {
+        let mut dict = Dictionary::new();
+        dict.insert(Entry::new("a AH0"));
+        dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
+        dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
+        assert_eq!(dict.len(), 3);
+    }
+
+    #[test]
+    fn test_dictionary_insert_raw() {
+        let mut dict = Dictionary::new();
+        dict.insert_raw("a H0");
+        dict.insert_raw("a.m. EY2 EH1 M");
+        assert_eq!(dict.len(), 2);
+    }
+
+    #[test]
+    fn test_dictionary_insert_all() {
+        let values: Vec<&str> = vec![
+            "a AH0",
+            "aardvark AA1 R D V AA2 R K",
+            "aardvarks AA1 R D V AA2 R K S",
+        ];
+        let mut dict = Dictionary::new();
+        dict.insert_all(&values);
+        assert_eq!(dict.len(), 3);
+    }
+
+    #[test]
+    fn test_dictionary_lookup_by_term() {
+        let mut dict = Dictionary::new();
+        dict.insert(Entry::new("a AH0"));
+        dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
+        dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
+        let entry = dict.lookup("aardvark").unwrap();  // Or fail.
+        assert_eq!(entry.text, "aardvark");
+        assert_eq!(entry.phonemes.len(), 7);
+        assert_eq!(None, dict.lookup("unknown"));
+    }
+
+    #[test]
+    fn test_dictionary_stats() {
+        let mut dict = Dictionary::new();
+        dict.insert(Entry::new("a AH0"));
+        dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
+        dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
+        assert_eq!(dict.len(), 3);
     }
 }
 
@@ -114,20 +205,47 @@ fn read_cmudict_to_lines(path: &str) -> Vec<String> {
     return v;
 }
 
+fn handle_term_query(query: &str, dict: &Dictionary) {
+    if let Some(entry) = dict.lookup(query) {
+        println!("Found {:?}", entry);
+    } else {
+        println!("Not found: {}", query);
+    }
+}
+
 fn main() {
     let matches = App::new("poet")
-                          .version("0.1.0")
-                          .arg(Arg::with_name("dict")
-                              .short("d")
-                              .long("dict")
-                              .value_name("FILE")
-                              .help("Path to the cmudict.dict dictionary file.")
-                              .takes_value(true))
-                          .get_matches();
+        .version("0.1.0")
+        .arg(
+            Arg::with_name("dict")
+                .short("d")
+                .long("dict")
+                .value_name("FILE")
+                .help("Path to the cmudict.dict dictionary file.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("query")
+                .short("q")
+                .long("query")
+                .value_name("WORD")
+                .help("Looks up WORD in the dictionary and returns info on it.")
+                .takes_value(true)
+        )
+        .get_matches();
+
     let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
 
     println!("Hello, world!");
 
     let cmudict_lines = read_cmudict_to_lines(cmudict_path);
     println!("Read {} lines.", cmudict_lines.len());
+
+    let mut dict = Dictionary::new();
+    dict.insert_all(&cmudict_lines.iter().map(|s| s as &str).collect());
+
+    if let Some(q) = matches.value_of("query") {
+        // TODO: Exit with a failure status value if lookup failed.
+        handle_term_query(q, &dict);
+    }
 }
