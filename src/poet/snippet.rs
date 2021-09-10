@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
 // A "snippet" refers to any bit of text to be analyzed. It is most often a
 // poem or other prose, but it can also be a single word.
 //
@@ -6,6 +9,42 @@
 // intentional structure (e.g. the breaking of words into lines) that is
 // important.
 
+use crate::poet::dictionary::*;
+
+/// Analyzes the file at `path`, printing the results to the terminal.
+///
+/// # Arguments
+///
+/// * `path` - The text file to analyze.
+/// * `dict` - The dictionary to use.
+///
+pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
+    let f = File::open(path).unwrap();
+    let br = BufReader::new(f);
+    for line in br.lines() {
+        if line.as_ref().unwrap().is_empty() {
+            continue;
+        }
+        println!("{}", line.as_ref().unwrap());
+        // TODO: Replace this with a real tokenizer. It misses out due
+        // to punctuation (including [.,-!/]), and capitalization.
+        //
+        // There's also a case with hyphenates at the ends of lines,
+        // but this is probably a later problem.
+        let mut num_syllables: i32 = 0;
+        for token in line.as_ref().unwrap().trim().split_whitespace() {
+            let key = normalize_for_lookup(token);
+            if let Some(entry) = dict.lookup(&key) {
+                println!("\t{}: {:?}", token, entry);
+                num_syllables += entry.syllables;
+            } else {
+                println!("\t{}: None", token);
+            }
+        }
+        println!("\t==> Line summary: {} syllables.", num_syllables);
+        println!("");
+    }
+}
 
 /// Normalizes the input word for looking up in the dictionary.
 ///

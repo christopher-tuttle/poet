@@ -2,8 +2,6 @@
 extern crate lazy_static;
 extern crate clap;
 use clap::{App, Arg};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 mod poet;
 
@@ -15,34 +13,6 @@ fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
         println!("Found {:?}", entry);
     } else {
         println!("Not found: {}", query);
-    }
-}
-
-fn handle_input_file(path: &str, dict: &dictionary::Dictionary) {
-    let f = File::open(path).unwrap();
-    let br = BufReader::new(f);
-    for line in br.lines() {
-        if line.as_ref().unwrap().is_empty() {
-            continue;
-        }
-        println!("{}", line.as_ref().unwrap());
-        // TODO: Replace this with a real tokenizer. It misses out due
-        // to punctuation (including [.,-!/]), and capitalization.
-        //
-        // There's also a case with hyphenates at the ends of lines,
-        // but this is probably a later problem.
-        let mut num_syllables: i32 = 0;
-        for token in line.as_ref().unwrap().trim().split_whitespace() {
-            let key = snippet::normalize_for_lookup(token);
-            if let Some(entry) = dict.lookup(&key) {
-                println!("\t{}: {:?}", token, entry);
-                num_syllables += entry.syllables;
-            } else {
-                println!("\t{}: None", token);
-            }
-        }
-        println!("\t==> Line summary: {} syllables.", num_syllables);
-        println!("");
     }
 }
 
@@ -89,6 +59,6 @@ fn main() {
 
     if let Some(path) = matches.value_of("input") {
         // TODO: Handle errors more gracefully.
-        handle_input_file(path, &dict);
+        snippet::analyze_one_file_to_terminal(path, &dict);
     }
 }
