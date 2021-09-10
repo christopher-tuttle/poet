@@ -213,6 +213,26 @@ fn handle_term_query(query: &str, dict: &Dictionary) {
     }
 }
 
+fn handle_input_file(path: &str, dict: &Dictionary) {
+    let f = File::open(path).unwrap();
+    let br = BufReader::new(f);
+    for line in br.lines() {
+        println!("{}", line.as_ref().unwrap());
+        // TODO: Replace this with a real tokenizer. It misses out due
+        // to punctuation (including [.,-!/]), and capitalization.
+        //
+        // There's also a case with hyphenates at the ends of lines,
+        // but this is probably a later problem.
+        for token in line.as_ref().unwrap().trim().split_whitespace() {
+            if let Some(entry) = dict.lookup(token) {
+                println!("\t{}: {:?}", token, entry);
+            } else {
+                println!("\t{}: None", token);
+            }
+        }
+    }
+}
+
 fn main() {
     let matches = App::new("poet")
         .version("0.1.0")
@@ -232,6 +252,14 @@ fn main() {
                 .help("Looks up WORD in the dictionary and returns info on it.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("input")
+                .short("i")
+                .long("input")
+                .value_name("FILE")
+                .help("Analyzes the lines in the given text file.")
+                .takes_value(true)
+        )
         .get_matches();
 
     let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
@@ -247,5 +275,10 @@ fn main() {
     if let Some(q) = matches.value_of("query") {
         // TODO: Exit with a failure status value if lookup failed.
         handle_term_query(q, &dict);
+    }
+
+    if let Some(path) = matches.value_of("input") {
+        // TODO: Handle errors more gracefully.
+        handle_input_file(path, &dict);
     }
 }
