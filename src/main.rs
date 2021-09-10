@@ -12,6 +12,7 @@ struct Entry {
     text: String,
     phonemes: Vec<String>,
     variant: i32,
+    syllables: i32,
 }
 
 impl Entry {
@@ -39,6 +40,7 @@ impl Entry {
             text: String::from(&term_cap[0]),
             phonemes: Vec::with_capacity(tokens.len() - 1),
             variant: 1,
+            syllables: 0,
         };
         if term_cap.get(3).is_some() {
             result.variant = term_cap[3].parse().unwrap();
@@ -47,6 +49,10 @@ impl Entry {
         for ph in &tokens[1..] {
             let ph_cap = PHONEME_RE.captures(&ph).unwrap();
             result.phonemes.push(String::from(&ph_cap[0]));
+            // Phonemes with integers indicate the main vowel sounds.
+            if ph_cap.get(1).is_some() {
+                result.syllables += 1;
+            }
         }
 
         return result;
@@ -144,6 +150,14 @@ mod tests {
     }
 
     #[test]
+    fn test_entry_syllable_count() {
+        assert_eq!(Entry::new("a AH0").syllables, 1);
+        assert_eq!(Entry::new("aardvark AA1 R D V AA2 R K").syllables, 2);
+        assert_eq!(Entry::new("amounted(2) AH0 M AW1 N IH0 D").syllables, 3);
+        assert_eq!(Entry::new("gdp G IY1 D IY1 P IY1").syllables, 3);
+    }
+
+    #[test]
     fn test_dictionary_insert() {
         let mut dict = Dictionary::new();
         dict.insert(Entry::new("a AH0"));
@@ -217,19 +231,26 @@ fn handle_input_file(path: &str, dict: &Dictionary) {
     let f = File::open(path).unwrap();
     let br = BufReader::new(f);
     for line in br.lines() {
+        if line.as_ref().unwrap().is_empty() {
+            continue;
+        }
         println!("{}", line.as_ref().unwrap());
         // TODO: Replace this with a real tokenizer. It misses out due
         // to punctuation (including [.,-!/]), and capitalization.
         //
         // There's also a case with hyphenates at the ends of lines,
         // but this is probably a later problem.
+        let mut num_syllables: i32 = 0;
         for token in line.as_ref().unwrap().trim().split_whitespace() {
             if let Some(entry) = dict.lookup(token) {
                 println!("\t{}: {:?}", token, entry);
+                num_syllables += entry.syllables;
             } else {
                 println!("\t{}: None", token);
             }
         }
+        println!("\t==> Line summary: {} syllables.", num_syllables);
+        println!("");
     }
 }
 
