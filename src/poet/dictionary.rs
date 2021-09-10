@@ -1,3 +1,5 @@
+use std::error::Error;
+
 #[derive(Debug, PartialEq)]
 pub struct Entry {
     pub text: String,
@@ -61,6 +63,18 @@ impl Dictionary {
         Dictionary {
             entries: std::collections::HashMap::new()
         }
+    }
+
+    pub fn new_from_cmudict_file(path: &str) -> Result<Dictionary,Box<dyn Error>> {
+        let mut dict = Dictionary::new();
+
+        use std::io::{BufReader, BufRead};
+        let f = std::fs::File::open(path)?;
+        let br = BufReader::new(f);
+        for line in br.lines() {
+            dict.insert_raw(line?.trim());
+        }
+        return Ok(dict);
     }
 
     pub fn insert(&mut self, entry: Entry) {
@@ -185,6 +199,13 @@ mod tests {
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
         assert_eq!(dict.len(), 3);
+    }
+
+    #[test]
+    #[ignore] // It's slow.
+    fn test_can_read_entire_cmudict() {
+        let _dict = Dictionary::new_from_cmudict_file("./cmudict.dict").unwrap();
+        // The test is successful if it doesn't crash.
     }
 } // mod tests
 

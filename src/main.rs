@@ -14,17 +14,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore] // It's slow.
-    fn test_can_read_entire_cmudict() {
-        let lines = read_cmudict_to_lines("./cmudict.dict");
-        for line in lines {
-            let entry = dictionary::Entry::new(&line);
-            println!("Read {:?}", entry);
-        }
-        // The test is successful if it doesn't crash.
-    }
-
-    #[test]
     fn test_token_normalize() {
         assert_eq!(normalize_for_lookup("tools"), "tools");
         assert_eq!(normalize_for_lookup("let's"), "let's");
@@ -89,17 +78,6 @@ fn normalize_for_lookup(term: &str) -> String {
     }
 
     return result;
-}
-
-// TODO: Idiomatic error handling.
-fn read_cmudict_to_lines(path: &str) -> Vec<String> {
-    let f = File::open(path).unwrap();
-    let br = BufReader::new(f);
-    let mut v = vec![];
-    for line in br.lines() {
-        v.push(String::from(line.unwrap().trim()));
-    }
-    return v;
 }
 
 fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
@@ -171,11 +149,8 @@ fn main() {
 
     println!("Hello, world!");
 
-    let cmudict_lines = read_cmudict_to_lines(cmudict_path);
-    println!("Read {} lines.", cmudict_lines.len());
-
-    let mut dict = poet::dictionary::Dictionary::new();
-    dict.insert_all(&cmudict_lines.iter().map(|s| s as &str).collect());
+    let dict = poet::dictionary::Dictionary::new_from_cmudict_file(cmudict_path)
+        .expect("Failed to read cmudict file!");
 
     if let Some(q) = matches.value_of("query") {
         // TODO: Exit with a failure status value if lookup failed.
