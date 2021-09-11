@@ -1,14 +1,63 @@
+//! A phonetic dictionary.
+//!
+//! This provides a wrapper around the `cmusphinx` phonetic dictionary.
+//!
+//! This dictionary uses most of the ARPABET 2-letter phonemes, which are described here:
+//! https://en.wikipedia.org/wiki/ARPABET
+//!
+//! In short, entries in the dictionary have a term and pronciation, with the option
+//! of having several different pronunciations for a word:
+//!
+//! ```
+//! aluminium AH0 L UW1 M IH0 N AH0 M
+//! aluminium(2) AE2 L Y UW1 M IH0 N AH0 M
+//! ```
+//!
+//! The phonemes are classified as either vowel or consonant sounds. Vowel sounds in the
+//! dictionary include a stress notation as an integer, e.g. `AH0`. Zero indicates no
+//! stress, one is primary stress, two is secondary, and so on. This is used to guess
+//! the location and count of the syllables in a word.
+//!
+//! In this module, the main object is Dictionary, which provides lookups for individual words, and
+//! also the ability to search for words that rhyme with a given word, by comparing the suffixes of
+//! the pronciations.
+//!
+//! Related references:
+//! https://github.com/cmusphinx/cmudict
+//! https://cmusphinx.github.io/wiki/tutorialdict/
+//! http://www.speech.cs.cmu.edu/tools/lextool.html
+//!
 use std::error::Error;
 
+/// An Entry represents a single word or variant with its associated metadata.
+///
+/// This corresponds to one line in the cmudict file.
 #[derive(Debug, PartialEq)]
 pub struct Entry {
+    /// The term as listed in the dictionary, e.g. "flower", "aluminium(2)", "let's", "a.m.".
     pub text: String,
+    /// The individual phonemes as listed, in the original order e.g. `["SH", "R", "IH1", "M", "P"]`.
     pub phonemes: Vec<String>,
+    /// The variant, e.g. 2 for the term `aluminium(2)`. Default 1.
     pub variant: i32,
+    /// The number of syllables, identified by the number of vowel sounds.
     pub syllables: i32,
 }
 
 impl Entry {
+    /// Constructs an Entry from the given line, assumed to be in cmudict format.
+    ///
+    /// Example inputs:
+    /// ```
+    /// 'twas T W AH1 Z
+    /// a AH0
+    /// a(2) EY1
+    /// a's EY1 Z
+    /// a.'s EY1 Z
+    /// a.m. EY2 EH1 M
+    /// achill AE1 K IH0 L # place, irish
+    /// achill's AE1 K IH0 L Z
+    /// ```
     pub fn new(line: &str) -> Entry {
         let mut trimmed_line = line;
         // Strip comments if present ('#' through the end of line).
@@ -53,18 +102,24 @@ impl Entry {
     }
 }
 
+/// A container for a collection of entries.
+///
+/// Either construct one and populate it with individual entries, or initialize one from
+/// a text file in `cmudict.dict` format.
 #[derive(Debug)]
 pub struct Dictionary {
     entries: std::collections::HashMap<String, Entry>,
 }
 
 impl Dictionary {
+    /// Creates a new empty Dictionary.
     pub fn new() -> Dictionary {
         Dictionary {
             entries: std::collections::HashMap::new()
         }
     }
 
+    /// Creates a new dictionary, populated from the given text file.
     pub fn new_from_cmudict_file(path: &str) -> Result<Dictionary,Box<dyn Error>> {
         let mut dict = Dictionary::new();
 
@@ -77,25 +132,30 @@ impl Dictionary {
         return Ok(dict);
     }
 
+    /// Inserts a single entry.
     pub fn insert(&mut self, entry: Entry) {
         self.entries.insert(entry.text.clone(), entry);
     }
 
+    /// Inserts a single entry as though it would appear as a single line of the cmudict file.
     pub fn insert_raw(&mut self, line: &str) {
         let entry = Entry::new(line);
         self.entries.insert(entry.text.clone(), entry);
     }
 
+    /// Inserts all of the items in `lines` as though they were individually insert_raw()d.
     pub fn insert_all(&mut self, lines: &Vec<&str>) {
         for line in lines {
             self.insert_raw(line);
         }
     }
 
+    /// Returns the entry for the given term, or None.
     pub fn lookup(&self, term: &str) -> Option<&Entry> {
         return self.entries.get(term);
     }
 
+    /// Returns the number of entries in the dictionary.
     pub fn len(&self) -> usize {
         return self.entries.len();
     }
