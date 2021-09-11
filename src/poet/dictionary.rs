@@ -32,7 +32,7 @@ use std::error::Error;
 /// An Entry represents a single word or variant with its associated metadata.
 ///
 /// This corresponds to one line in the cmudict file.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     /// The term as listed in the dictionary, e.g. "flower", "aluminium(2)", "let's", "a.m.".
     pub text: String,
@@ -100,6 +100,34 @@ impl Entry {
 
         return result;
     }
+
+    fn similarity_key(&self) -> String {
+        let mut result = String::with_capacity(4 * 100);  // 100 chars should be plenty.
+        for ph in self.phonemes.iter().rev() {
+            result.push_str(ph);
+            result.push(' ');
+        }
+        result.push_str(&self.text);  // To disambiguate homonyms.
+        return result;
+    }
+
+    fn similarity_prefix(&self, syllable_count: usize) -> String {
+        let mut result = String::with_capacity(4 * 100);  // 100 chars should be plenty.
+        let mut vowel_count: usize = 0;
+        for ph in self.phonemes.iter().rev() {
+            let is_vowel = ph.matches(char::is_numeric).count() > 0;
+            result.push_str(ph);
+            result.push(' ');
+
+            if is_vowel {
+                vowel_count += 1;
+                if vowel_count >= syllable_count {
+                    break;
+                }
+            }
+        }
+        return result;
+    }
 }
 
 /// A container for a collection of entries.
@@ -109,13 +137,29 @@ impl Entry {
 #[derive(Debug)]
 pub struct Dictionary {
     entries: std::collections::HashMap<String, Entry>,
+
+    // This stores Entry::similarity_key()s to terms. MUST REMAIN SORTED.
+    //
+    // e.g. ("L AH0 V AH1 SH shovel", "shovel")
+    //
+    // TODO: Replace the vector with a BTreeMap or a tree / trie.
+    // TODO: Replace the value type with a ref to the Entry.
+    reverse_list: Vec<(String, String)>,
 }
 
+// TODO: Replace this wasteful and crude similarity algorithm.
+//
+// The current algorithm works by:
+//   - Keep a sorted vector of the reverse phonemes (so similar endings appear adjacent).
+//   - Return any terms that share the very last syllable sound.
+// 
+// TODO: Prioritize terms that are more similar (share more phonemes at the tail).
 impl Dictionary {
     /// Creates a new empty Dictionary.
     pub fn new() -> Dictionary {
         Dictionary {
-            entries: std::collections::HashMap::new()
+            entries: std::collections::HashMap::new(),
+            reverse_list: vec![],
         }
     }
 
@@ -127,27 +171,36 @@ impl Dictionary {
         let f = std::fs::File::open(path)?;
         let br = BufReader::new(f);
         for line in br.lines() {
-            dict.insert_raw(line?.trim());
+            dict.insert_internal(Entry::new(line?.trim()));
         }
+        dict.reverse_list.sort();
         return Ok(dict);
     }
 
     /// Inserts a single entry.
     pub fn insert(&mut self, entry: Entry) {
-        self.entries.insert(entry.text.clone(), entry);
+        self.insert_internal(entry);
+        self.reverse_list.sort();
     }
 
     /// Inserts a single entry as though it would appear as a single line of the cmudict file.
     pub fn insert_raw(&mut self, line: &str) {
         let entry = Entry::new(line);
-        self.entries.insert(entry.text.clone(), entry);
+        self.insert(entry);
     }
 
     /// Inserts all of the items in `lines` as though they were individually insert_raw()d.
     pub fn insert_all(&mut self, lines: &Vec<&str>) {
         for line in lines {
-            self.insert_raw(line);
+            let entry = Entry::new(line);
+            self.insert_internal(entry);
         }
+        self.reverse_list.sort();
+    }
+
+    fn insert_internal(&mut self, entry: Entry) {
+        self.reverse_list.push((entry.similarity_key(), entry.text.clone()));
+        self.entries.insert(entry.text.clone(), entry);
     }
 
     /// Returns the entry for the given term, or None.
@@ -158,6 +211,31 @@ impl Dictionary {
     /// Returns the number of entries in the dictionary.
     pub fn len(&self) -> usize {
         return self.entries.len();
+    }
+
+    /// Returns terms that share the last syllable with the given term.
+    ///
+    /// TODO: Replace the return value with something that doesn't have so many copies.
+    /// TODO: Make the similarity more discerning, rather than boolean on the last syllable.
+    pub fn similar(&self, term: &str) -> Vec<String> {
+        let entry = self.lookup(term);
+        if entry.is_none() {
+            return vec![];
+        }
+
+        let mut result = vec![];
+        
+        let key_prefix: String = entry.unwrap().similarity_prefix(1 /* syllable */);
+        for (prefix, t) in &self.reverse_list {
+            if t == term {
+                continue;
+            }
+            if prefix.starts_with(key_prefix.as_str()) {
+                result.push(t.clone());
+            }
+        }
+        result.sort();
+        return result;
     }
 }
 
@@ -259,6 +337,58 @@ mod tests {
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
         assert_eq!(dict.len(), 3);
+    }
+
+    #[test]
+    fn test_similar() {
+        let dict_values = vec![
+            // These words rhyme.
+            "bayous B AY1 UW0 Z",
+            "fondues F AA1 N D UW0 Z",
+            "virtues V ER1 CH UW0 Z",
+            // These do too, but not with the first ones.
+            "diagram D AY1 AH0 G R AE2 M",
+            "polygram P AA1 L IY2 G R AE2 M",
+            "program P R OW1 G R AE2 M",
+            "programme P R OW1 G R AE2 M",
+            "telegram T EH1 L AH0 G R AE2 M",
+            // These are other unrelated words to pad out the dictionary.
+            "apple AE1 P AH0 L",
+            "apple's AE1 P AH0 L Z",
+            "apples AE1 P AH0 L Z",
+            "applesauce AE1 P AH0 L S AO2 S",
+            "avocado AE2 V AH0 K AA1 D OW0",
+            "avocados AE2 V AH0 K AA1 D OW0 Z",
+            "cranberry K R AE1 N B EH2 R IY0",
+            "guava G W AA1 V AH0",
+            "guavas G W AA1 V AH0 Z",
+            "mango M AE1 NG G OW0",
+            "mangoes M AE1 NG G OW0 Z",
+            "mangold M AE1 N G OW2 L D",
+        ];
+        let mut dict = Dictionary::new();
+        for v in dict_values {
+            dict.insert(Entry::new(v));
+        }
+        assert_eq!(dict.similar("bayous"), vec!["fondues", "virtues"]);
+        assert_eq!(dict.similar("program"), vec!["diagram", "polygram", "programme", "telegram"]);
+        assert!(dict.similar("guava").is_empty());
+        assert_eq!(dict.similar("apples"), vec!["apple's"]);
+    }
+
+    #[test]
+    fn test_similar_with_homonyms() {
+        let dict_values = vec![
+            "read R EH1 D",
+            "reade R EH1 D",
+            "red R EH1 D",
+            "redd R EH1 D",
+        ];
+        let mut dict = Dictionary::new();
+        for v in dict_values {
+            dict.insert(Entry::new(v));
+        }
+        assert_eq!(dict.similar("red"), vec!["read", "reade", "redd"]);
     }
 
     #[test]

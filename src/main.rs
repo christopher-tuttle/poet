@@ -11,6 +11,9 @@ use crate::poet::*;
 fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
     if let Some(entry) = dict.lookup(query) {
         println!("Found {:?}", entry);
+        for word in dict.similar(query) {
+            println!("\tsimilar word: {}", word);
+        }
     } else {
         println!("Not found: {}", query);
     }
