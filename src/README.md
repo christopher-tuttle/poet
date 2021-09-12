@@ -37,6 +37,12 @@ _To start, this is just a scratch pile of things that may be useful._
 I looked at `warp`, `hyper`, and `rocket`, and it looks like `rocket` is
 well-used, developer-friendly, and actively staffed. So Rocket it is.
 
+### Templating library: Tera
+
+Both `tera` and `handlebars` are supported by `rocket`, and they seem to
+be more or less equivalent. I'm picking Tera for now because I found some
+code snippets and their documentation looks pretty good.
+
 ### Command-line flags library: `clap`
 
 I started by looking at std::env::args, which would be not too bad for

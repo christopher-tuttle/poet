@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>poet</title>
+	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+</head>
+<body>
+	<p><b>Analysis of text:</b></p>
+	<pre> {{ raw_analysis }} </pre>
+</body>
+</html>

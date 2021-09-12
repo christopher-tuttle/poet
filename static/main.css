@@ -1,0 +1,13 @@
+body {
+	position: absolute;
+	top: 10%;
+	margin-top: -42px;
+	margin-left: -42px;
+	left: 10%;
+	text-align: left;
+}
+#text, #output {
+	height: 30px;
+	font-size: 16pt;
+	padding: 5px;
+}

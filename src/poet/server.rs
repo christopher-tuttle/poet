@@ -1,8 +1,10 @@
 //! HTTP server components for poet.
 
-use rocket::response::content;
 use rocket::form::Form;
 use rocket::State;
+use rocket_dyn_templates::Template;
+use rocket::serde::Serialize;
+use std::collections::HashMap;
 
 use crate::poet::*;
 
@@ -13,24 +15,31 @@ struct ServerState {
     dict: dictionary::Dictionary
 }
 
+/// A Context for populating the lookup template.
+#[derive(Serialize)]
+#[serde(crate = "rocket::serde")]
+struct LookupTemplateContext<'a> {
+    query: &'a str,
+    entry_info: Option<String>,
+    similar_words: Vec<String>,
+}
+
 /// Handler for querying the dictionary for a single term.
 #[get("/lookup?<term>")]
-fn lookup(state: &State<ServerState>, term: &str) -> content::Html<String> {
-    // TODO: Add validation to the query term.
-    // TODO: Improve the fidelity and separation of the rhyming words, and their presentation.
-    let mut result: String = format!("<p>The query was <b>{}</b>.</p>", term);
-    if let Some(entry) = state.dict.lookup(term) {
-        result.push_str(format!("<p>Found: <code>{:?}</code></p>", entry).as_str());
-        result.push_str(format!("<p>Potential rhymes: ").as_str());
-        for word in state.dict.similar(term) {
-            result.push_str(format!("{}, ", word).as_str());
-        }
-        result.push_str("</p>");
+fn lookup(state: &State<ServerState>, term: &str) -> Template {
+    let mut context = LookupTemplateContext {
+        query: term,
+        entry_info: None,
+        similar_words: vec![],
+    };
 
-    } else {
-        result.push_str("<p><b><font color=red>Word not found</font></b></p>");
+    if let Some(entry) = state.dict.lookup(term) {
+        context.entry_info = Some(format!("{:?}", entry));
+        for word in state.dict.similar(term) {
+            context.similar_words.push(word);
+        }
     }
-    return content::Html(result);
+    return Template::render("lookup", context);
 }
 
 /// Describes the parameters and types for /analyze POST requests.
@@ -45,11 +54,13 @@ struct AnalyzeRequest<'a> {
 
 /// Handler for a POST form to analyze a block of prose / snippet.
 #[post("/analyze", data="<req>")]
-fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> content::Html<String> {
+fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     // TODO: Migrate this to templates.
     // TODO: Refactor duplicated code below into a chart-like form.
     let mut result: String = format!("<p><b>Analysis of text:</b></p>");
     result.push_str("<pre>\n");
+
+    let mut result = String::new();
     for line in req.text.lines() {
         if line.is_empty() {
             continue;
@@ -68,28 +79,16 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> content::Ht
         result.push_str(format!("\t==> Line summary: {} syllables.\n", num_syllables).as_str());
         result.push_str("\n");
     }
-    return content::Html(result);
+    let mut context = HashMap::<&str, &str>::new();
+    context.insert("raw_analysis", result.as_str());
+    return Template::render("analyze", context);
 }
 
 /// Handler for the root (/) page.
 #[rocket::get("/")]
-fn index() -> content::Html<String> {
-    // TODO: Migrate this to templates.
-    content::Html(format!(r#"
-        <h1>/ˈpōət/</h1>
-        <p><i>Look up a single word:</i>
-        <form action="/lookup">
-          <input name="term" type=text>
-          <input type="submit" value="Lookup">
-        </form>
-        </p>
-        <p><i>Analyze some text:</i>
-        <form action="/analyze" method="post">
-          <textarea name="text" rows=30 cols=100></textarea>
-          <input type="submit" value="Go">
-        </form>
-        </p>
-        "#))
+fn index() -> Template {
+    let context = HashMap::<&str, &str>::new();
+    return Template::render("index", context);
 }
 
 /// Starts the Rocket HTTP server and awaits until the server shuts down.
@@ -108,7 +107,9 @@ pub async fn run(dictionary: dictionary::Dictionary) {
 
     let result = rocket::build()
         .manage(ServerState { dict: dictionary })
+        .attach(Template::fairing())
         .mount("/", routes![index, lookup, analyze])
+        .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch().await;
     if let Err(e) = result {
         println!("***** Failed to launch web server. *****");

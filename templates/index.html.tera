@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>poet</title>
+	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+</head>
+<body>
+        <h1>/ˈpōət/</h1>
+
+        <p><em>Look up a single word:</em>
+        <form action="/lookup">
+          <input name="term" type=text>
+          <input type="submit" value="Lookup">
+        </form>
+        </p>
+
+        <p><i>Analyze some text:</i>
+        <form action="/analyze" method="post">
+          <textarea name="text" rows=30 cols=100></textarea>
+          <input type="submit" value="Go">
+        </form>
+        </p>
+</body>
+</html>

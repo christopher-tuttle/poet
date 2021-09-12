@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>poet</title>
+	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+</head>
+<body>
+	<p>The query was <b> {{ query }} </b></p>
+	{% if entry_info %}
+		<p>Found: <code>{{ entry_info }}</code></p>
+		<p>Potential rhymes:
+			{% for word in similar_words %}
+				{{ word }}, 
+			{% endfor %}
+	  	</p>
+	{% else %}
+	<p><b><font color=red>Word not found</font></b></p>
+	{% endif %}
+
+</body>
+</html>
