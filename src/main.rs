@@ -19,7 +19,10 @@ fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
     }
 }
 
-fn main() {
+#[macro_use] extern crate rocket;
+
+#[rocket::main]
+async fn main() {
     let matches = App::new("poet")
         .version("0.1.0")
         .arg(
@@ -28,7 +31,7 @@ fn main() {
                 .long("dict")
                 .value_name("FILE")
                 .help("Path to the cmudict.dict dictionary file.")
-                .takes_value(true),
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("query")
@@ -37,6 +40,7 @@ fn main() {
                 .value_name("WORD")
                 .help("Looks up WORD in the dictionary and returns info on it.")
                 .takes_value(true)
+                .conflicts_with_all(&["input", "server"])
         )
         .arg(
             Arg::with_name("input")
@@ -45,12 +49,17 @@ fn main() {
                 .value_name("FILE")
                 .help("Analyzes the lines in the given text file.")
                 .takes_value(true)
+                .conflicts_with("server")
+        )
+        .arg(
+            Arg::with_name("server")
+                .short("s")
+                .long("server")
+                .help("Launches the poet web server.")
         )
         .get_matches();
 
     let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
-
-    println!("Hello, world!");
 
     let dict = poet::dictionary::Dictionary::new_from_cmudict_file(cmudict_path)
         .expect("Failed to read cmudict file!");
@@ -63,5 +72,9 @@ fn main() {
     if let Some(path) = matches.value_of("input") {
         // TODO: Handle errors more gracefully.
         snippet::analyze_one_file_to_terminal(path, &dict);
+    }
+    
+    if matches.is_present("server") {
+        server::run().await;
     }
 }
