@@ -75,6 +75,6 @@ async fn main() {
     }
     
     if matches.is_present("server") {
-        server::run().await;
+        server::run(dict).await;
     }
 }
