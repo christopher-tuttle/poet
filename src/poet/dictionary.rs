@@ -3,7 +3,7 @@
 //! This provides a wrapper around the `cmusphinx` phonetic dictionary.
 //!
 //! This dictionary uses most of the ARPABET 2-letter phonemes, which are described here:
-//! https://en.wikipedia.org/wiki/ARPABET
+//! <https://en.wikipedia.org/wiki/ARPABET>
 //!
 //! In short, entries in the dictionary have a term and pronciation, with the option
 //! of having several different pronunciations for a word:
@@ -23,9 +23,10 @@
 //! the pronciations.
 //!
 //! Related references:
-//! https://github.com/cmusphinx/cmudict
-//! https://cmusphinx.github.io/wiki/tutorialdict/
-//! http://www.speech.cs.cmu.edu/tools/lextool.html
+//!
+//! * <https://github.com/cmusphinx/cmudict>
+//! * <https://cmusphinx.github.io/wiki/tutorialdict/>
+//! * <http://www.speech.cs.cmu.edu/tools/lextool.html>
 //!
 use std::error::Error;
 
