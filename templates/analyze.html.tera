@@ -7,5 +7,15 @@
 <body>
 	<p><b>Analysis of text:</b></p>
 	<pre> {{ raw_analysis }} </pre>
+	<hr>
+	
+	<p><b>Trial rendering of analysis:</b></p>
+	{%- for line in lines -%}
+		<pre>
+		{%- for word in line -%}
+                    <span class="{{ word.css_class }}">{{ word.text }} </span>
+                {%- endfor -%}
+		</pre>
+	{% endfor %}
 </body>
 </html>

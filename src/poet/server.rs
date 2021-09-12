@@ -119,19 +119,62 @@ struct AnalyzeRequest<'a> {
     text: &'a str,
 }
 
+/// Stores the data about a single word in the input snippet, for passing to the template.
+#[derive(Serialize)]
+#[serde(crate = "rocket::serde")]
+struct SingleWordAnalysis<'a> {
+    text: String,
+    css_class: &'a str,
+    syllables: i32,
+}
+
 /// Handler for a POST form to analyze a block of prose / snippet.
 #[post("/analyze", data = "<req>")]
 fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
-    let mut result = String::with_capacity(8192); // Arbitrary.
+    let mut context = rocket_dyn_templates::tera::Context::new();
+
+    // For the moment, there are two different outputs here:
+    // 1. The "raw" / terminal-like debug strings of all the word lookups, passed to the
+    //    template to be inserted in a <pre> tag.
+    // 2. A more colorful / styled version, showing the words with relevant data.
+    //
+    // Both are produced below and passed together to the template.
+    //
+    // TODO: Improve the second version to replace the first.
+    // TODO: Refactor duplicated code below into a chart-like form.
     let stanzas = snippet::get_stanzas_from_text(&req.text, &state.dict);
-    for s in stanzas {
-        result.push_str(&s.summarize_to_text());
-        result.push('\n');
+
+    // Case 1, the terminal style.
+    let mut raw_style_result = String::with_capacity(8192); // Arbitrary.
+    for s in &stanzas {
+        raw_style_result.push_str(&s.summarize_to_text());
+        raw_style_result.push('\n');
+    }
+    context.insert("raw_analysis", raw_style_result.as_str());
+
+    // Case 2, the colored spans.
+    let mut annotations: Vec<Vec<SingleWordAnalysis>> = vec![];
+    for s in &stanzas {
+        for l in &s.lines {
+            let mut line_annotations: Vec<SingleWordAnalysis> = vec![];
+            for t in &l.tokens {
+                let mut word_info = SingleWordAnalysis {
+                    text: t.text.clone(),
+                    css_class: "missing",
+                    syllables: 0,
+                };
+                if let Some(entry) = &t.entry {
+                    word_info.css_class = "found";
+                    word_info.syllables = entry.syllables;
+                }
+                line_annotations.push(word_info);
+            }
+            annotations.push(line_annotations);
+        }
     }
 
-    let mut context = HashMap::<&str, &str>::new();
-    context.insert("raw_analysis", result.as_str());
-    return Template::render("analyze", context);
+    context.insert("lines", &annotations);
+    return Template::render("analyze", context.into_json());
 }
 
 /// Handler for the root (/) page.
