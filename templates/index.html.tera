@@ -3,6 +3,7 @@
 <head>
 	<title>poet</title>
 	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+	<script src="static/index.js"></script>
 </head>
 <body>
         <h1>/ˈpōət/</h1>

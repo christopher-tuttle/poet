@@ -42,6 +42,31 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
     return Template::render("lookup", context);
 }
 
+/// Handler for AJAX lookup of a term (`/api/lookup?term=<query>`).
+///
+/// The templating is all done server-side at the moment, so this endpoint returns HTML to
+/// be inserted into the page.
+#[get("/api/lookup?<term>")]
+fn api_lookup(state: &State<ServerState>, term: &str) -> String {
+    if let Some(entry) = state.dict.lookup(term) {
+        let mut similar = state.dict.similar(term);
+        let num_synonyms = similar.len();
+        if similar.len() > 8 {
+            similar.truncate(9);
+            similar[8] = String::from("...");
+        }
+        let result: String = format!("{} (<code>{}</code>) [{} syllables] with {} synonyms like: {}",
+          term,
+          entry.phonemes.join(" "),
+          entry.syllables,
+          num_synonyms,
+          similar.join(", "));
+        return result;
+    } else {
+        return format!("<em>{}</em> not found.", term);
+    }
+}
+
 /// Describes the parameters and types for /analyze POST requests.
 ///
 /// This is used by Rocket to validate incoming requests and to pass the values to
@@ -91,7 +116,7 @@ pub async fn run(dictionary: dictionary::Dictionary) {
     let result = rocket::build()
         .manage(ServerState { dict: dictionary })
         .attach(Template::fairing())
-        .mount("/", routes![index, lookup, analyze])
+        .mount("/", routes![index, lookup, analyze, api_lookup])
         .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch().await;
     if let Err(e) = result {
