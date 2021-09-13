@@ -80,12 +80,16 @@ pub fn normalize_for_lookup(term: &str) -> String {
     }
 
     // NOTE: Keep the period as the first element, as it sliced away below.
-    const PUNCTUATION_TO_STRIP: &[char] = &['.', '!', ',', '?'];
+    const PUNCTUATION_TO_STRIP: &[char] = &['.', '!', ',', '?', ':', ';'];
     // This makes a copy of the string but remove_matches() is an experimental api still.
     if has_inner_periods {
         result = result.replace(&PUNCTUATION_TO_STRIP[1..], "");
     } else {
         result = result.replace(&PUNCTUATION_TO_STRIP[..], "");
+    }
+    // This is a way of doing str::trim_end_matches('-') in-place.
+    while result.ends_with('-') {
+        result.pop();
     }
 
     return result;
@@ -110,6 +114,12 @@ mod tests {
         assert_eq!(normalize_for_lookup("found..."), "found");
         assert_eq!(normalize_for_lookup("prize!"), "prize");
         assert_eq!(normalize_for_lookup("flowers?"), "flowers");
+        assert_eq!(normalize_for_lookup("cure:"), "cure");
+        assert_eq!(normalize_for_lookup("ground;"), "ground");
+
+        // For now, only trailing dashes should be removed.
+        assert_eq!(normalize_for_lookup("pen--"), "pen");
+        assert_eq!(normalize_for_lookup("well-contented"), "well-contented");
 
         // Periods should be preserved if they also appear within the term.
         assert_eq!(normalize_for_lookup("A.M."), "a.m.");
