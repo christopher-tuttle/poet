@@ -37,11 +37,36 @@ _To start, this is just a scratch pile of things that may be useful._
 I looked at `warp`, `hyper`, and `rocket`, and it looks like `rocket` is
 well-used, developer-friendly, and actively staffed. So Rocket it is.
 
+#### Experience so far
+
+Fair. Set up was quick, and the live reloading and diagnostics to the
+terminal have been pretty good. One challenge is that it's a moving target,
+so several of the examples I was trying to get working based on GitHub
+were failing, because they're in the midst of change. This was especially
+true when trying to get templating to work.
+
+Also, because `tera`, `serde`, and other crates are re-exported -- and my
+understanding of the crate system is very weak -- getting the right set
+of imports and coercing types was causing problems. One example is that
+`rocket_dyn_templates::tera::Context` doesn't seem to have a `Serialize`
+trait -- even though it's supposed to be the same as `tera::Context` --
+so I use `.from_json()`, which works fine.
+
 ### Templating library: Tera
 
 Both `tera` and `handlebars` are supported by `rocket`, and they seem to
 be more or less equivalent. I'm picking Tera for now because I found some
 code snippets and their documentation looks pretty good.
+
+#### Experience so far
+
+Pretty good. For the simple stuff, it has worked fine. I ran into a little
+bump where I was using `{% %}` instead of `{{ }}`, which with the error
+message made it look like the language didn't support nested `for` loops.
+
+I also need to work out how to handle whitespace -- especially newlines --
+correctly if I'm going to use `<pre>` as the basis for showing the annotated
+snippet.
 
 ### Command-line flags library: `clap`
 
@@ -50,6 +75,10 @@ very simple stuff, but something closer to `getopt` would be better. Based
 on some searches, it looks like `clap` is intended for this use, and while
 it hasn't been updated in over a year, it does have nearly 2500 commits in
 the repo, and the examples look easy to follow. Good enough for now.
+
+#### Experience so far
+
+Good. It's been easy to work with.
 
 ## Notes on word analysis
 
