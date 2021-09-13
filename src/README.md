@@ -29,6 +29,7 @@ _To start, this is just a scratch pile of things that may be useful._
     * Modifying the dictionary.
     * Supporting phonetic annotation.
     * Integration with Google Docs to pull text from there.
+    * "Advanced Search" that modifies the similarity rules for partial / fuzzy matching.
 
 ## Notes and Decisions on dependencies, etc.
 
