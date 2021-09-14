@@ -35,8 +35,8 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 
     if let Some(entry) = state.dict.lookup(term) {
         context.entry_info = Some(format!("{:?}", entry));
-        for word in state.dict.similar(term) {
-            context.similar_words.push(word);
+        for word in state.dict.similar(term).words {
+            context.similar_words.push(word.word.clone());
         }
     }
     return Template::render("lookup", context);
@@ -49,21 +49,22 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 #[get("/api/lookup?<term>")]
 fn api_lookup(state: &State<ServerState>, term: &str) -> String {
     if let Some(entry) = state.dict.lookup(term) {
-        let mut similar = state.dict.similar(term);
-        let num_synonyms = similar.len();
-        if similar.len() > 8 {
-            similar.truncate(9);
-            similar[8] = String::from("...");
+        let similar_info = state.dict.similar(term);
+        let num_similar = similar_info.words.len();
+
+        let mut examples = String::with_capacity(1024);  // Arbitrary.
+        const NUM_WORDS_TO_SHOW: usize = 8;
+        for (i, word_info) in similar_info.words.iter().enumerate() {
+            if i > NUM_WORDS_TO_SHOW {
+                examples.push_str("...");
+                break;
+            } else {
+                examples.push_str(&format!("<b>{}</b>, ", &word_info.word));
+            }
         }
-        let result: String = format!(
-            "{} (<code>{}</code>) [{} syllables] with {} synonyms like: {}",
-            term,
-            entry.phonemes.join(" "),
-            entry.syllables,
-            num_synonyms,
-            similar.join(", ")
-        );
-        return result;
+
+        return format!("{} (<code>{}</code>) [{} syllables] with {} similar words like:<br>{}",
+          term, entry.phonemes.join(" "), entry.syllables, num_similar, examples);
     } else {
         return format!("<em>{}</em> not found.", term);
     }

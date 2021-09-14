@@ -28,6 +28,7 @@
 //! * <https://cmusphinx.github.io/wiki/tutorialdict/>
 //! * <http://www.speech.cs.cmu.edu/tools/lextool.html>
 //!
+use std::cmp::Ordering;
 use std::error::Error;
 
 /// An Entry represents a single word or variant with its associated metadata.
@@ -131,6 +132,25 @@ impl Entry {
     }
 }
 
+/// Computes a similarity score between two words. Higher scores are more similar.
+///
+/// Args:
+/// * `a_phonemes` - The phonemes for the first word.
+/// * `b_phonemes` - The phonemes for the second word.
+///
+fn similarity_score(a_phonemes: &Vec<String>, b_phonemes: &Vec<String>) -> i32 {
+    let mut score: i32 = 0;
+
+    for (a, b) in a_phonemes.iter().rev().zip(b_phonemes.iter().rev()) {
+        if a == b {
+            score += 1;
+        } else {
+            break;
+        }
+    }
+    return score;
+}
+
 /// A container for a collection of entries.
 ///
 /// Either construct one and populate it with individual entries, or initialize one from
@@ -146,6 +166,47 @@ pub struct Dictionary {
     // TODO: Replace the vector with a BTreeMap or a tree / trie.
     // TODO: Replace the value type with a ref to the Entry.
     reverse_list: Vec<(String, String)>,
+}
+
+/// Represents a single word along with associated meta-data.
+#[derive(Debug, Eq)]
+pub struct SimilarWord {
+    /// The word.
+    pub word: String,
+
+    /// Larger scores represent higher similarity.
+    pub score: i32,
+}
+
+/// Return value for Dictionary::similar(), holding all the results.
+#[derive(Debug)]
+pub struct SimilarResult {
+    /// All of the similar words sorted decreasing by similarity.
+    pub words: Vec<SimilarWord>,
+}
+
+impl Ord for SimilarWord {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Want to sort descending by score.
+        match self.score.cmp(&other.score) {
+            Ordering::Less => Ordering::Greater,
+            Ordering::Greater => Ordering::Less,
+            // Then ascending by the word text.
+            Ordering::Equal => self.word.cmp(&other.word),
+        }
+    }
+}
+
+impl PartialOrd for SimilarWord {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for SimilarWord {
+    fn eq(&self, other: &Self) -> bool {
+        self.word == other.word && self.score == other.score
+    }
 }
 
 // TODO: Replace this wasteful and crude similarity algorithm.
@@ -219,13 +280,13 @@ impl Dictionary {
     ///
     /// TODO: Replace the return value with something that doesn't have so many copies.
     /// TODO: Make the similarity more discerning, rather than boolean on the last syllable.
-    pub fn similar(&self, term: &str) -> Vec<String> {
+    pub fn similar(&self, term: &str) -> SimilarResult {
+        let mut result = SimilarResult { words: vec![] };
+
         let entry = self.lookup(term);
         if entry.is_none() {
-            return vec![];
+            return result;
         }
-
-        let mut result = vec![];
 
         let key_prefix: String = entry.unwrap().similarity_prefix(1 /* syllable */);
         for (prefix, t) in &self.reverse_list {
@@ -233,10 +294,14 @@ impl Dictionary {
                 continue;
             }
             if prefix.starts_with(key_prefix.as_str()) {
-                result.push(t.clone());
+                let other_entry = self.lookup(t).unwrap();
+                result.words.push(SimilarWord {
+                    word: t.clone(),
+                    score: similarity_score(&entry.unwrap().phonemes, &other_entry.phonemes),
+                });
             }
         }
-        result.sort();
+        result.words.sort();
         return result;
     }
 }
@@ -342,8 +407,50 @@ mod tests {
     }
 
     #[test]
+    fn test_similarity_score() {
+        let bayous = Entry::new("bayous B AY1 UW0 Z");
+        let fondues = Entry::new("fondues F AA1 N D UW0 Z");
+        let virtues = Entry::new("virtues V ER1 CH UW0 Z");
+        assert_eq!(similarity_score(&bayous.phonemes, &fondues.phonemes), 2);
+        assert_eq!(similarity_score(&fondues.phonemes, &virtues.phonemes), 2);
+
+        let diagram = Entry::new("diagram D AY1 AH0 G R AE2 M");
+        let polygram = Entry::new("polygram P AA1 L IY2 G R AE2 M");
+        let program = Entry::new("program P R OW1 G R AE2 M");
+        let programme = Entry::new("programme P R OW1 G R AE2 M");
+        assert_eq!(similarity_score(&diagram.phonemes, &polygram.phonemes), 4);
+        assert_eq!(similarity_score(&diagram.phonemes, &program.phonemes), 4);
+        assert_eq!(similarity_score(&program.phonemes, &programme.phonemes), 7);
+
+        let apple = Entry::new("apple AE1 P AH0 L");
+        let apple_s = Entry::new("apple's AE1 P AH0 L Z");
+        let apples = Entry::new("apples AE1 P AH0 L Z");
+        assert_eq!(similarity_score(&apple.phonemes, &apple_s.phonemes), 0);
+        assert_eq!(similarity_score(&apple.phonemes, &apples.phonemes), 0);
+        assert_eq!(similarity_score(&apple_s.phonemes, &apples.phonemes), 5);
+
+        let mango = Entry::new("mango M AE1 NG G OW0");
+        let mangoes = Entry::new("mangoes M AE1 NG G OW0 Z");
+        let mangold = Entry::new("mangold M AE1 N G OW2 L D");
+        assert_eq!(similarity_score(&mango.phonemes, &mangoes.phonemes), 0);
+        assert_eq!(similarity_score(&mango.phonemes, &mangold.phonemes), 0);
+        assert_eq!(similarity_score(&mangoes.phonemes, &mangold.phonemes), 0);
+    }
+
+    // This helper calls `dict.similar(query)` and checks that the returned words are `expected`.
+    fn assert_similar_terms_are(dict: &Dictionary, query: &str, expected: &Vec<&str>) {
+        let result = dict.similar(query);
+        let result_words: Vec<String> = result
+            .words
+            .iter()
+            .map(|similar_entry| similar_entry.word.clone())
+            .collect();
+        assert_eq!(&result_words, expected);
+    }
+
+    #[test]
     fn test_similar() {
-        let dict_values = vec![
+        let values = vec![
             // These words rhyme.
             "bayous B AY1 UW0 Z",
             "fondues F AA1 N D UW0 Z",
@@ -369,31 +476,29 @@ mod tests {
             "mangold M AE1 N G OW2 L D",
         ];
         let mut dict = Dictionary::new();
-        for v in dict_values {
-            dict.insert(Entry::new(v));
-        }
-        assert_eq!(dict.similar("bayous"), vec!["fondues", "virtues"]);
-        assert_eq!(
-            dict.similar("program"),
-            vec!["diagram", "polygram", "programme", "telegram"]
+        dict.insert_all(&values);
+
+        assert_similar_terms_are(&dict, "bayous", &vec!["fondues", "virtues"]);
+        assert_similar_terms_are(
+            &dict,
+            "program",
+            &vec!["programme", "diagram", "polygram", "telegram"],
         );
-        assert!(dict.similar("guava").is_empty());
-        assert_eq!(dict.similar("apples"), vec!["apple's"]);
+        assert!(dict.similar("guava").words.is_empty());
+        assert_similar_terms_are(&dict, "apples", &vec!["apple's"]);
     }
 
     #[test]
     fn test_similar_with_homonyms() {
-        let dict_values = vec![
+        let values = vec![
             "read R EH1 D",
             "reade R EH1 D",
             "red R EH1 D",
             "redd R EH1 D",
         ];
         let mut dict = Dictionary::new();
-        for v in dict_values {
-            dict.insert(Entry::new(v));
-        }
-        assert_eq!(dict.similar("red"), vec!["read", "reade", "redd"]);
+        dict.insert_all(&values);
+        assert_similar_terms_are(&dict, "red", &vec!["read", "reade", "redd"]);
     }
 
     #[test]
