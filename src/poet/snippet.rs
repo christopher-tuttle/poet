@@ -1,15 +1,163 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-
-// A "snippet" refers to any bit of text to be analyzed. It is most often a
-// poem or other prose, but it can also be a single word.
-//
-// Generally, the text in a snippet will have punctuation, capitalization,
-// and other formatting that may have to be removed, and it often also has
-// intentional structure (e.g. the breaking of words into lines) that is
-// important.
-
+//! A "snippet" refers to any bit of text to be analyzed.
+//!
+//! It is most often a poem or other prose, but it can also be a single word.
+//!
+//! Generally, the text in a snippet will have punctuation, capitalization,
+//! and other formatting that may have to be removed, and it often also has
+//! intentional structure (e.g. the breaking of words into lines) that is
+//! important.
 use crate::poet::dictionary::*;
+
+/// A token is one word from the original text, normalized and annotated.
+#[derive(Debug)]
+pub struct Token<'a> {
+    /// The text, after passing through `normalize_for_lookup`.
+    pub text: String,
+
+    /// The corresponding `dictionary::Entry` if the word is known.
+    ///
+    /// Lifetime note: holds a reference into the dictionary used for lookup.
+    pub entry: Option<&'a Entry>,
+
+    // TODO: Include span information referring to the char positions in raw_text?
+    // pub raw_text: &str[],
+}
+
+/// Represents a single line of a snippet.
+#[derive(Debug)]
+pub struct Line<'a> {
+    /// The original, user-entered text for the full line.
+    pub raw_text: String,
+
+    /// The tokenized version of `raw_text`.
+    pub tokens: Vec<Token<'a>>,
+}
+
+impl<'a> Line<'a> {
+    /// Analyzes the given line and produces a new `Line` with the results.
+    ///
+    /// Arguments:
+    /// * `raw` - A non-empty line from a poem, e.g. `Roses are red,`.
+    /// * `dict` - The dictionary to use for word lookups.
+    ///
+    /// Lifetime note: the `Dictionary` must outlive the returned `Line`.
+    fn new_from_line<'b>(raw: &str, dict: &'b Dictionary) -> Line<'b> {
+        let mut result = Line {
+            raw_text: raw.to_string(),
+            tokens: vec![],
+        };
+
+        for word in raw.split_whitespace() {
+            let normalized_text = normalize_for_lookup(&word);
+            let entry_option = dict.lookup(&normalized_text);
+            result.tokens.push(Token {
+                text: normalized_text,
+                entry: entry_option,
+            });
+        }
+        result
+    }
+
+    /// Returns the number of syllables in the line.
+    ///
+    /// TODO: This may be invalid in face of variants and it ignores unknown words.
+    pub fn num_syllables(&self) -> i32 {
+        let mut num_syllables = 0;
+        for token in &self.tokens {
+            if let Some(entry) = &token.entry {
+                num_syllables += entry.syllables;
+            }
+        }
+        return num_syllables;
+    }
+
+    /// Returns whether there are any unknown words in the line.
+    pub fn has_unknown_words(&self) -> bool {
+        self.tokens.iter().filter(|x| x.entry.is_none()).count() > 0
+    }
+}
+
+/// Container a block of text (usually a single poem) and its analysis.
+///
+/// This is the top-level analysis object, holding information about the snippet of text as a
+/// whole. Within it are individual `Line`s, each with `Token`s for each word.
+///
+/// This implementation assumes Snippets are fairly short-lived, e.g. that they are created when
+/// processing an individual file or web request, and then discarded. Snippets hold Tokens, which
+/// hold references to dictionary `Entry`s.
+pub struct Snippet<'a> {
+    pub lines: Vec<Line<'a>>,
+}
+
+impl<'a> Snippet<'a> {
+    fn new() -> Snippet<'a> {
+        Snippet { lines: vec![] }
+    }
+
+    /// Generates a summary of the snippet and its analysis in a text format.
+    ///
+    /// The summary includes the raw text and information about each word/token
+    /// in each line. The format is targeted for printing to a terminal or put in a
+    /// `<pre>` html block.
+    pub fn summarize_to_text(&self) -> String {
+        let mut out = String::with_capacity(8192); // Arbitrary.
+        for line in &self.lines {
+            out.push_str(&line.raw_text);
+            out.push('\n');
+            for token in &line.tokens {
+                if let Some(entry) = &token.entry {
+                    out.push_str(&format!("\t{}: {:?}\n", &token.text, &entry));
+                } else {
+                    out.push_str(&format!("\t{}: None.\n", &token.text));
+                }
+            }
+            out.push_str(&format!(
+                "\t==> Line summary: {} syllables.\n",
+                line.num_syllables()
+            ));
+            out.push('\n');
+        }
+        return out;
+    }
+}
+
+/// Finds and analyzes all the snippets in the given string.
+///
+/// If the input has multiple snippets/poems in it, then they are assumed to be
+/// separated by blank lines.
+///
+/// Arguments:
+/// * `input` - some raw input, like the contents of a file or a field from a form
+/// * `dict` - the Dictionary to use for word lookups
+///
+/// TODO: Document better.
+pub fn get_snippets_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Snippet<'a>> {
+    // First attempt: Just create a new snippet each time that there is a blank
+    // line after one or more non-blank ones.
+    //
+    // TODO:
+    // Treat single lines as titles for handling multiple-snippet inputs.
+
+    let mut output = vec![];
+    let mut snippet = Snippet::new();
+    for raw_line in input.lines() {
+        let line = raw_line.trim();
+        // Finalize the current snippet at each new line.
+        if line.is_empty() {
+            if !snippet.lines.is_empty() {
+                output.push(snippet);
+                snippet = Snippet::new();
+            }
+            continue;
+        }
+        snippet.lines.push(Line::new_from_line(line, dict));
+    }
+    // Finalize last snippet.
+    if !snippet.lines.is_empty() {
+        output.push(snippet);
+    }
+    return output;
+}
 
 /// Analyzes the file at `path`, printing the results to the terminal.
 ///
@@ -19,30 +167,10 @@ use crate::poet::dictionary::*;
 /// * `dict` - The dictionary to use.
 ///
 pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
-    let f = File::open(path).unwrap();
-    let br = BufReader::new(f);
-    for line in br.lines() {
-        if line.as_ref().unwrap().is_empty() {
-            continue;
-        }
-        println!("{}", line.as_ref().unwrap());
-        // TODO: Replace this with a real tokenizer. It misses out due
-        // to punctuation (including [.,-!/]), and capitalization.
-        //
-        // There's also a case with hyphenates at the ends of lines,
-        // but this is probably a later problem.
-        let mut num_syllables: i32 = 0;
-        for token in line.as_ref().unwrap().trim().split_whitespace() {
-            let key = normalize_for_lookup(token);
-            if let Some(entry) = dict.lookup(&key) {
-                println!("\t{}: {:?}", token, entry);
-                num_syllables += entry.syllables;
-            } else {
-                println!("\t{}: None", token);
-            }
-        }
-        println!("\t==> Line summary: {} syllables.", num_syllables);
-        println!("");
+    let raw_input = std::fs::read_to_string(path).unwrap();
+    let snippets = get_snippets_from_text(&raw_input, dict);
+    for s in snippets {
+        println!("====== SNIPPET ======\n{}", s.summarize_to_text());
     }
 }
 
@@ -64,7 +192,7 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
 /// ```
 ///
 pub fn normalize_for_lookup(term: &str) -> String {
-    let lowercased_term = term.to_lowercase();  // N.B.: This could be folded into the loop below.
+    let lowercased_term = term.to_lowercase(); // N.B.: This could be folded into the loop below.
 
     // Strip a whole bunch of unnecessary punctuation, and search for a couple of interesting
     // cases of punctuation in the middle that may need special handling.
