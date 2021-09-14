@@ -64,29 +64,41 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
 /// ```
 ///
 pub fn normalize_for_lookup(term: &str) -> String {
-    let mut result = term.to_lowercase();
+    let lowercased_term = term.to_lowercase();  // N.B.: This could be folded into the loop below.
 
+    // Strip a whole bunch of unnecessary punctuation, and search for a couple of interesting
+    // cases of punctuation in the middle that may need special handling.
+    //
     // Detect cases like "A.M.". If there is a period in the middle of the term
     // somewhere, then the periods won't be stripped below.
-    let mut has_inner_periods = false;
     let mut found_period = false;
-    for c in result.chars() {
-        if c == '.' {
-            found_period = true;
-        } else if found_period && c.is_alphanumeric() {
-            has_inner_periods = true;
-            break;
-        }
+    let mut has_inner_periods = false;
+    let mut result: String = lowercased_term
+        .chars()
+        .filter_map(|c| match c {
+            '!' | ',' | '?' | ':' | ';' | '"' | '“' | '”' => None,
+            '’' => Some('\''), // Switch the curly apostrophe to the ASCII verison.
+            '.' => {
+                found_period = true;
+                Some(c) // Stripping these is conditional and done below.
+            }
+            _ => {
+                if found_period {
+                    // Assume that any character not listed above is valid for the dictionary,
+                    // in which case the current character indicates that the word is
+                    // continuing, so the period that was found before wasn't at the end.
+                    has_inner_periods = true;
+                }
+                Some(c)
+            }
+        })
+        .collect();
+
+    // This case mostly catches the ends of sentences and words with ellipses...
+    if !has_inner_periods {
+        result = result.replace('.', "");
     }
 
-    // NOTE: Keep the period as the first element, as it sliced away below.
-    const PUNCTUATION_TO_STRIP: &[char] = &['.', '!', ',', '?', ':', ';', '"'];
-    // This makes a copy of the string but remove_matches() is an experimental api still.
-    if has_inner_periods {
-        result = result.replace(&PUNCTUATION_TO_STRIP[1..], "");
-    } else {
-        result = result.replace(&PUNCTUATION_TO_STRIP[..], "");
-    }
     // This is a way of doing str::trim_end_matches('-') in-place.
     while result.ends_with('-') {
         result.pop();
@@ -118,6 +130,10 @@ mod tests {
         assert_eq!(normalize_for_lookup("ground;"), "ground");
         assert_eq!(normalize_for_lookup("\"Nope.\""), "nope");
 
+        // Curly quotes should be treated as the ascii equivalents.
+        assert_eq!(normalize_for_lookup("“double”"), "double");
+        assert_eq!(normalize_for_lookup("single’s"), "single's");
+
         // For now, only trailing dashes should be removed.
         assert_eq!(normalize_for_lookup("pen--"), "pen");
         assert_eq!(normalize_for_lookup("well-contented"), "well-contented");
@@ -127,4 +143,3 @@ mod tests {
         assert_eq!(normalize_for_lookup("p.m.,"), "p.m.");
     }
 }
-
