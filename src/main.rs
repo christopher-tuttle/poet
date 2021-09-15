@@ -7,7 +7,6 @@ mod poet;
 
 use crate::poet::*;
 
-
 fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
     if let Some(entry) = dict.lookup(query) {
         println!("Found {:?}", entry);
@@ -19,7 +18,8 @@ fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
     }
 }
 
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
 
 #[rocket::main]
 async fn main() {
@@ -31,7 +31,7 @@ async fn main() {
                 .long("dict")
                 .value_name("FILE")
                 .help("Path to the cmudict.dict dictionary file.")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("query")
@@ -40,7 +40,7 @@ async fn main() {
                 .value_name("WORD")
                 .help("Looks up WORD in the dictionary and returns info on it.")
                 .takes_value(true)
-                .conflicts_with_all(&["input", "server"])
+                .conflicts_with_all(&["input", "server"]),
         )
         .arg(
             Arg::with_name("input")
@@ -49,13 +49,13 @@ async fn main() {
                 .value_name("FILE")
                 .help("Analyzes the lines in the given text file.")
                 .takes_value(true)
-                .conflicts_with("server")
+                .conflicts_with("server"),
         )
         .arg(
             Arg::with_name("server")
                 .short("s")
                 .long("server")
-                .help("Launches the poet web server.")
+                .help("Launches the poet web server."),
         )
         .get_matches();
 
@@ -73,7 +73,7 @@ async fn main() {
         // TODO: Handle errors more gracefully.
         snippet::analyze_one_file_to_terminal(path, &dict);
     }
-    
+
     if matches.is_present("server") {
         server::run(dict).await;
     }

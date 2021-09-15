@@ -103,17 +103,17 @@ impl Entry {
     }
 
     fn similarity_key(&self) -> String {
-        let mut result = String::with_capacity(4 * 100);  // 100 chars should be plenty.
+        let mut result = String::with_capacity(4 * 100); // 100 chars should be plenty.
         for ph in self.phonemes.iter().rev() {
             result.push_str(ph);
             result.push(' ');
         }
-        result.push_str(&self.text);  // To disambiguate homonyms.
+        result.push_str(&self.text); // To disambiguate homonyms.
         return result;
     }
 
     fn similarity_prefix(&self, syllable_count: usize) -> String {
-        let mut result = String::with_capacity(4 * 100);  // 100 chars should be plenty.
+        let mut result = String::with_capacity(4 * 100); // 100 chars should be plenty.
         let mut vowel_count: usize = 0;
         for ph in self.phonemes.iter().rev() {
             let is_vowel = ph.matches(char::is_numeric).count() > 0;
@@ -153,7 +153,7 @@ pub struct Dictionary {
 // The current algorithm works by:
 //   - Keep a sorted vector of the reverse phonemes (so similar endings appear adjacent).
 //   - Return any terms that share the very last syllable sound.
-// 
+//
 // TODO: Prioritize terms that are more similar (share more phonemes at the tail).
 impl Dictionary {
     /// Creates a new empty Dictionary.
@@ -165,10 +165,10 @@ impl Dictionary {
     }
 
     /// Creates a new dictionary, populated from the given text file.
-    pub fn new_from_cmudict_file(path: &str) -> Result<Dictionary,Box<dyn Error>> {
+    pub fn new_from_cmudict_file(path: &str) -> Result<Dictionary, Box<dyn Error>> {
         let mut dict = Dictionary::new();
 
-        use std::io::{BufReader, BufRead};
+        use std::io::{BufRead, BufReader};
         let f = std::fs::File::open(path)?;
         let br = BufReader::new(f);
         for line in br.lines() {
@@ -200,7 +200,8 @@ impl Dictionary {
     }
 
     fn insert_internal(&mut self, entry: Entry) {
-        self.reverse_list.push((entry.similarity_key(), entry.text.clone()));
+        self.reverse_list
+            .push((entry.similarity_key(), entry.text.clone()));
         self.entries.insert(entry.text.clone(), entry);
     }
 
@@ -225,7 +226,7 @@ impl Dictionary {
         }
 
         let mut result = vec![];
-        
+
         let key_prefix: String = entry.unwrap().similarity_prefix(1 /* syllable */);
         for (prefix, t) in &self.reverse_list {
             if t == term {
@@ -325,7 +326,7 @@ mod tests {
         dict.insert(Entry::new("a AH0"));
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
-        let entry = dict.lookup("aardvark").unwrap();  // Or fail.
+        let entry = dict.lookup("aardvark").unwrap(); // Or fail.
         assert_eq!(entry.text, "aardvark");
         assert_eq!(entry.phonemes.len(), 7);
         assert_eq!(None, dict.lookup("unknown"));
@@ -372,7 +373,10 @@ mod tests {
             dict.insert(Entry::new(v));
         }
         assert_eq!(dict.similar("bayous"), vec!["fondues", "virtues"]);
-        assert_eq!(dict.similar("program"), vec!["diagram", "polygram", "programme", "telegram"]);
+        assert_eq!(
+            dict.similar("program"),
+            vec!["diagram", "polygram", "programme", "telegram"]
+        );
         assert!(dict.similar("guava").is_empty());
         assert_eq!(dict.similar("apples"), vec!["apple's"]);
     }
@@ -399,4 +403,3 @@ mod tests {
         // The test is successful if it doesn't crash.
     }
 } // mod tests
-

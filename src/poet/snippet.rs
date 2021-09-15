@@ -18,7 +18,6 @@ pub struct Token<'a> {
     ///
     /// Lifetime note: holds a reference into the dictionary used for lookup.
     pub entry: Option<&'a Entry>,
-
     // TODO: Include span information referring to the char positions in raw_text?
     // pub raw_text: &str[],
 }

@@ -1,9 +1,9 @@
 //! HTTP server components for poet.
 
 use rocket::form::Form;
+use rocket::serde::Serialize;
 use rocket::State;
 use rocket_dyn_templates::Template;
-use rocket::serde::Serialize;
 use std::collections::HashMap;
 
 use crate::poet::*;
@@ -12,7 +12,7 @@ use crate::poet::*;
 ///
 /// XXX: This is assumed to be thread safe but it is only incidentally so right now. Fix it.
 struct ServerState {
-    dict: dictionary::Dictionary
+    dict: dictionary::Dictionary,
 }
 
 /// A Context for populating the lookup template.
@@ -55,12 +55,14 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
             similar.truncate(9);
             similar[8] = String::from("...");
         }
-        let result: String = format!("{} (<code>{}</code>) [{} syllables] with {} synonyms like: {}",
-          term,
-          entry.phonemes.join(" "),
-          entry.syllables,
-          num_synonyms,
-          similar.join(", "));
+        let result: String = format!(
+            "{} (<code>{}</code>) [{} syllables] with {} synonyms like: {}",
+            term,
+            entry.phonemes.join(" "),
+            entry.syllables,
+            num_synonyms,
+            similar.join(", ")
+        );
         return result;
     } else {
         return format!("<em>{}</em> not found.", term);
@@ -78,9 +80,9 @@ struct AnalyzeRequest<'a> {
 }
 
 /// Handler for a POST form to analyze a block of prose / snippet.
-#[post("/analyze", data="<req>")]
+#[post("/analyze", data = "<req>")]
 fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
-    let mut result = String::with_capacity(8192);  // Arbitrary.
+    let mut result = String::with_capacity(8192); // Arbitrary.
     let snippets = snippet::get_snippets_from_text(&req.text, &state.dict);
     for s in snippets {
         result.push_str(&s.summarize_to_text());
@@ -118,7 +120,8 @@ pub async fn run(dictionary: dictionary::Dictionary) {
         .attach(Template::fairing())
         .mount("/", routes![index, lookup, analyze, api_lookup])
         .mount("/static", rocket::fs::FileServer::from("static/"))
-        .launch().await;
+        .launch()
+        .await;
     if let Err(e) = result {
         println!("***** Failed to launch web server. *****");
         // Drop the error to get a Rocket-formatted panic.
