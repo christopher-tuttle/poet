@@ -1,11 +1,11 @@
 //! A "snippet" refers to any bit of text to be analyzed.
 //!
-//! It is most often a poem or other prose, but it can also be a single word.
+//! It is most often one or more poems or other prose, but it can also be a single word.
+//! The parser looks for one or more "stanzas" within the snippet, where a stanza is
+//! expected to be a contiguous, multi-line text block, often with some poetic form.
 //!
 //! Generally, the text in a snippet will have punctuation, capitalization,
-//! and other formatting that may have to be removed, and it often also has
-//! intentional structure (e.g. the breaking of words into lines) that is
-//! important.
+//! and other formatting that may have to be removed.
 use crate::poet::dictionary::*;
 
 /// A token is one word from the original text, normalized and annotated.
@@ -22,7 +22,7 @@ pub struct Token<'a> {
     // pub raw_text: &str[],
 }
 
-/// Represents a single line of a snippet.
+/// Represents a single line of a stanza.
 #[derive(Debug)]
 pub struct Line<'a> {
     /// The original, user-entered text for the full line.
@@ -78,22 +78,22 @@ impl<'a> Line<'a> {
 
 /// Container a block of text (usually a single poem) and its analysis.
 ///
-/// This is the top-level analysis object, holding information about the snippet of text as a
-/// whole. Within it are individual `Line`s, each with `Token`s for each word.
+/// This is the top-level analysis object, holding information about the stanza as a whole. Within
+/// it are individual `Line`s, each with `Token`s for each word.
 ///
-/// This implementation assumes Snippets are fairly short-lived, e.g. that they are created when
-/// processing an individual file or web request, and then discarded. Snippets hold Tokens, which
+/// This implementation assumes Stanzas are fairly short-lived, e.g. that they are created when
+/// processing an individual file or web request, and then discarded. Stanzas hold Tokens, which
 /// hold references to dictionary `Entry`s.
-pub struct Snippet<'a> {
+pub struct Stanza<'a> {
     pub lines: Vec<Line<'a>>,
 }
 
-impl<'a> Snippet<'a> {
-    fn new() -> Snippet<'a> {
-        Snippet { lines: vec![] }
+impl<'a> Stanza<'a> {
+    fn new() -> Stanza<'a> {
+        Stanza { lines: vec![] }
     }
 
-    /// Generates a summary of the snippet and its analysis in a text format.
+    /// Generates a summary of the stanza and its analysis in a text format.
     ///
     /// The summary includes the raw text and information about each word/token
     /// in each line. The format is targeted for printing to a terminal or put in a
@@ -120,9 +120,9 @@ impl<'a> Snippet<'a> {
     }
 }
 
-/// Finds and analyzes all the snippets in the given string.
+/// Finds and analyzes all the stanzas in the given string.
 ///
-/// If the input has multiple snippets/poems in it, then they are assumed to be
+/// If the input has multiple stanzas/poems in it, then they are assumed to be
 /// separated by blank lines.
 ///
 /// Arguments:
@@ -130,30 +130,30 @@ impl<'a> Snippet<'a> {
 /// * `dict` - the Dictionary to use for word lookups
 ///
 /// TODO: Document better.
-pub fn get_snippets_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Snippet<'a>> {
-    // First attempt: Just create a new snippet each time that there is a blank
+pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanza<'a>> {
+    // First attempt: Just create a new stanza each time that there is a blank
     // line after one or more non-blank ones.
     //
     // TODO:
-    // Treat single lines as titles for handling multiple-snippet inputs.
+    // Treat single lines as titles for handling multiple-stanza inputs.
 
     let mut output = vec![];
-    let mut snippet = Snippet::new();
+    let mut stanza = Stanza::new();
     for raw_line in input.lines() {
         let line = raw_line.trim();
-        // Finalize the current snippet at each new line.
+        // Finalize the current stanza at each new line.
         if line.is_empty() {
-            if !snippet.lines.is_empty() {
-                output.push(snippet);
-                snippet = Snippet::new();
+            if !stanza.lines.is_empty() {
+                output.push(stanza);
+                stanza = Stanza::new();
             }
             continue;
         }
-        snippet.lines.push(Line::new_from_line(line, dict));
+        stanza.lines.push(Line::new_from_line(line, dict));
     }
-    // Finalize last snippet.
-    if !snippet.lines.is_empty() {
-        output.push(snippet);
+    // Finalize last stanza.
+    if !stanza.lines.is_empty() {
+        output.push(stanza);
     }
     return output;
 }
@@ -167,9 +167,9 @@ pub fn get_snippets_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Snip
 ///
 pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     let raw_input = std::fs::read_to_string(path).unwrap();
-    let snippets = get_snippets_from_text(&raw_input, dict);
-    for s in snippets {
-        println!("====== SNIPPET ======\n{}", s.summarize_to_text());
+    let stanzas = get_stanzas_from_text(&raw_input, dict);
+    for s in stanzas {
+        println!("====== STANZA ======\n{}", s.summarize_to_text());
     }
 }
 

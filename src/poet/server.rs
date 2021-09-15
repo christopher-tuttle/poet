@@ -52,7 +52,7 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
         let similar_info = state.dict.similar(term);
         let num_similar = similar_info.words.len();
 
-        let mut examples = String::with_capacity(1024);  // Arbitrary.
+        let mut examples = String::with_capacity(1024); // Arbitrary.
         const NUM_WORDS_TO_SHOW: usize = 8;
         for (i, word_info) in similar_info.words.iter().enumerate() {
             if i > NUM_WORDS_TO_SHOW {
@@ -63,8 +63,14 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
             }
         }
 
-        return format!("{} (<code>{}</code>) [{} syllables] with {} similar words like:<br>{}",
-          term, entry.phonemes.join(" "), entry.syllables, num_similar, examples);
+        return format!(
+            "{} (<code>{}</code>) [{} syllables] with {} similar words like:<br>{}",
+            term,
+            entry.phonemes.join(" "),
+            entry.syllables,
+            num_similar,
+            examples
+        );
     } else {
         return format!("<em>{}</em> not found.", term);
     }
@@ -84,8 +90,8 @@ struct AnalyzeRequest<'a> {
 #[post("/analyze", data = "<req>")]
 fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     let mut result = String::with_capacity(8192); // Arbitrary.
-    let snippets = snippet::get_snippets_from_text(&req.text, &state.dict);
-    for s in snippets {
+    let stanzas = snippet::get_stanzas_from_text(&req.text, &state.dict);
+    for s in stanzas {
         result.push_str(&s.summarize_to_text());
         result.push('\n');
     }
