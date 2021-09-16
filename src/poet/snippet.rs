@@ -85,12 +85,22 @@ impl<'a> Line<'a> {
 /// processing an individual file or web request, and then discarded. Stanzas hold Tokens, which
 /// hold references to dictionary `Entry`s.
 pub struct Stanza<'a> {
+    /// The annotated text of the Stanza.
     pub lines: Vec<Line<'a>>,
+
+    /// The title of the stanza.
+    ///
+    /// In the input text file, a stanza is preceeded by a single line, that is assumed to be the
+    /// title.
+    pub title: Option<String>,
 }
 
 impl<'a> Stanza<'a> {
     fn new() -> Stanza<'a> {
-        Stanza { lines: vec![] }
+        Stanza {
+            lines: vec![],
+            title: None,
+        }
     }
 
     /// Generates a summary of the stanza and its analysis in a text format.
@@ -100,6 +110,11 @@ impl<'a> Stanza<'a> {
     /// `<pre>` html block.
     pub fn summarize_to_text(&self) -> String {
         let mut out = String::with_capacity(8192); // Arbitrary.
+
+        if let Some(title) = &self.title {
+            out.push_str(&format!("TITLE: {}\n", &title));
+        }
+
         for line in &self.lines {
             out.push_str(&line.raw_text);
             out.push('\n');
@@ -118,27 +133,47 @@ impl<'a> Stanza<'a> {
         }
         return out;
     }
+
+    /// Returns the number of lines in the Stanza.
+    pub fn num_lines(&self) -> usize {
+        self.lines.len()
+    }
 }
 
 /// Finds and analyzes all the stanzas in the given string.
 ///
-/// If the input has multiple stanzas/poems in it, then they are assumed to be
-/// separated by blank lines.
+/// Stanzas must have more than one line, and they are separated by one or more
+/// blank lines. If a Stanza is preceeded by a single line, that is used as the
+/// Stanza's title.
+///
+/// ```raw
+/// A duck walked the streets
+/// Searching for bits of sourdough
+/// Quacking constantly
+///
+/// Valentine
+///
+/// Roses are red
+/// Violets are blue
+/// Sugar is sweet
+/// And so are you
+/// ```
+///
+/// This parses as two stanzas, the first without a title, and the second with
+/// the title "Valentine".
 ///
 /// Arguments:
 /// * `input` - some raw input, like the contents of a file or a field from a form
 /// * `dict` - the Dictionary to use for word lookups
-///
-/// TODO: Document better.
 pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanza<'a>> {
-    // First attempt: Just create a new stanza each time that there is a blank
-    // line after one or more non-blank ones.
-    //
-    // TODO:
-    // Treat single lines as titles for handling multiple-stanza inputs.
-
     let mut output = vec![];
     let mut stanza = Stanza::new();
+
+    // The candidate_title is filled in whenever there is a stanza with only one line.
+    // This is saved so that, if it is followed by a stanza with more than one line, it
+    // will be used as the title.
+    let mut candidate_title: Option<String> = None;
+
     for raw_line in input.lines() {
         let line = raw_line.trim();
         // Skip comment lines.
@@ -148,16 +183,29 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
 
         // Finalize the current stanza at each new empty line.
         if line.is_empty() {
-            if !stanza.lines.is_empty() {
-                output.push(stanza);
-                stanza = Stanza::new();
+            match stanza.num_lines() {
+                0 => continue,
+                1 => {
+                    // Treat this as a possible title.
+                    candidate_title = Some(stanza.lines[0].raw_text.clone());
+                    stanza = Stanza::new();
+                    continue;
+                }
+                _ => {
+                    // Valid Stanza, so keep it.
+                    stanza.title = candidate_title; // Could be None. That's ok.
+                    candidate_title = None;
+                    output.push(stanza);
+                    stanza = Stanza::new();
+                }
             }
             continue;
         }
         stanza.lines.push(Line::new_from_line(line, dict));
     }
     // Finalize last stanza.
-    if !stanza.lines.is_empty() {
+    if stanza.num_lines() >= 2 {
+        stanza.title = candidate_title; // Could be None. That's ok.
         output.push(stanza);
     }
     return output;
@@ -273,5 +321,31 @@ mod tests {
         // Periods should be preserved if they also appear within the term.
         assert_eq!(normalize_for_lookup("A.M."), "a.m.");
         assert_eq!(normalize_for_lookup("p.m.,"), "p.m.");
+    }
+
+    #[test]
+    fn test_get_stanzas_from_text_selects_correct_text_blocks() {
+        let dict = Dictionary::new(); // Empty is ok, not testing lookups here.
+        let input = "\
+             # Some comment to be ignored.\n\
+             A duck walked the streets\n\
+             Searching for bits of sourdough\n\
+             Quacking constantly\n\
+             \n\
+             \n\
+             This single empty line should be ignored / replaced by the next.\n\
+             \n\
+             Valentine\n\
+             \n\
+             Roses are red\n\
+             Violets are blue\n\
+             Sugar is sweet\n\
+             And so are you\n";
+        let output = get_stanzas_from_text(&input, &dict);
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0].title, None);
+        assert_eq!(output[0].lines.len(), 3);
+        assert_eq!(output[1].title.as_ref().unwrap(), "Valentine");
+        assert_eq!(output[1].lines.len(), 4);
     }
 }
