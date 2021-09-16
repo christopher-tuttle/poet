@@ -138,6 +138,53 @@ impl<'a> Stanza<'a> {
     pub fn num_lines(&self) -> usize {
         self.lines.len()
     }
+
+    /// Returns whether there are any unkonwn words across the entire stanza.
+    pub fn has_unknown_words(&self) -> bool {
+        self.lines.iter().any(|l| l.has_unknown_words())
+    }
+}
+
+/// Returns whether the given Stanza is probably a Haiku.
+///
+/// If all the words are known, the result will be accurate. If some are unknown
+/// and they could possibly fill out lines that are otherwise too short, this
+/// function assumes the Stanza is valid.
+///
+/// Returns:
+/// - `Ok(true)` if valid.
+/// - `Err(info)` if not valid, with a reason why.
+fn is_haiku(stanza: &Stanza) -> Result<bool, String> {
+    if stanza.num_lines() != 3 {
+        return Err(format!(
+            "Haikus have 3 lines but the stanza has {}.",
+            stanza.num_lines()
+        ));
+    }
+    let mut errors = String::new();
+    for (i, expected_syllables) in [5, 7, 5].iter().enumerate() {
+        let num_syllables = stanza.lines[i].num_syllables();
+        if stanza.lines[i].has_unknown_words() {
+            if num_syllables >= *expected_syllables {
+                errors.push_str(&format!(
+                    "line {} has unknown words and {} syllables already, so it will exceed \
+                        the limit of {}. ",
+                    i, num_syllables, expected_syllables
+                ));
+            }
+            // Assume that the line is ok.
+        } else if num_syllables != *expected_syllables {
+            errors.push_str(&format!(
+                "line {} has {} syllables but should have {}. ",
+                i, num_syllables, expected_syllables
+            ));
+        }
+    }
+    if errors.is_empty() {
+        return Ok(true);
+    } else {
+        return Err(errors);
+    }
 }
 
 /// Finds and analyzes all the stanzas in the given string.
@@ -148,7 +195,7 @@ impl<'a> Stanza<'a> {
 ///
 /// ```raw
 /// A duck walked the streets
-/// Searching for bits of sourdough
+/// Searching for crumbs of crackers
 /// Quacking constantly
 ///
 /// Valentine
@@ -222,6 +269,9 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     let raw_input = std::fs::read_to_string(path).unwrap();
     let stanzas = get_stanzas_from_text(&raw_input, dict);
     for s in stanzas {
+        if is_haiku(&s).is_ok() {
+            println!("***** HAIKU *****\n");
+        }
         println!("====== STANZA ======\n{}", s.summarize_to_text());
     }
 }
@@ -329,7 +379,7 @@ mod tests {
         let input = "\
              # Some comment to be ignored.\n\
              A duck walked the streets\n\
-             Searching for bits of sourdough\n\
+             Searching for crumbs of crackers\n\
              Quacking constantly\n\
              \n\
              \n\
@@ -347,5 +397,100 @@ mod tests {
         assert_eq!(output[0].lines.len(), 3);
         assert_eq!(output[1].title.as_ref().unwrap(), "Valentine");
         assert_eq!(output[1].lines.len(), 4);
+    }
+
+    #[test]
+    fn test_is_haiku() {
+        let test_dictionary = vec![
+            "a AH0",
+            "a(2) EY1",
+            "bits B IH1 T S",
+            "constantly K AA1 N S T AH0 N T L IY0",
+            "crackers K R AE1 K ER0",
+            "crumbs K R AH1 M Z",
+            "duck D AH1 K",
+            "for F AO1 R",
+            "for(2) F ER0",
+            "for(3) F R ER0",
+            "of AH1 V",
+            "quacking K W AE1 K IH0 NG",
+            "searching S ER1 CH IH0 NG",
+            "streets S T R IY1 T S",
+            "the DH AH0",
+            "the(2) DH AH1",
+            "the(3) DH IY0",
+            "walked W AO1 K T",
+        ];
+        let mut dict = Dictionary::new();
+        dict.insert_all(&test_dictionary);
+
+        // This test helper assumes/requires there is only one Stanza to extract.
+        fn to_stanza<'a>(text: &str, dict: &'a Dictionary) -> Stanza<'a> {
+            let mut stanzas = get_stanzas_from_text(&text, &dict);
+            assert_eq!(stanzas.len(), 1);
+            stanzas.pop().unwrap()
+        }
+
+        // Valid haikus with all words in the dictionary should be valid.
+        {
+            let text = "\
+              A duck walked the streets\n\
+              Searching for crumbs of crackers\n\
+              Quacking constantly\n";
+            let stanza = to_stanza(text, &dict);
+            assert!(!stanza.has_unknown_words()); // Test invariant.
+            assert_eq!(is_haiku(&stanza), Ok(true));
+        }
+
+        // If all the words are known and the number of syllables are not correct,
+        // the stanza should not be valid.
+        {
+            let line1_too_short = "a a a a\na a a a a a a\na a a a a";
+            let line2_too_short = "a a a a a\na a a a a a\na a a a a";
+            let line3_too_short = "a a a a a\na a a a a a a\na a a a";
+            let all_too_long = "a a a a a a\na a a a a a a a\na a a a a a";
+            let stanza = to_stanza(&line1_too_short, &dict);
+            assert!(!stanza.has_unknown_words()); // Test invariant.
+            assert!(is_haiku(&stanza).is_err());
+
+            let stanza = to_stanza(&line2_too_short, &dict);
+            assert!(is_haiku(&stanza).is_err());
+
+            let stanza = to_stanza(&line3_too_short, &dict);
+            assert!(is_haiku(&stanza).is_err());
+
+            let stanza = to_stanza(&all_too_long, &dict);
+            assert!(is_haiku(&stanza).is_err());
+        }
+
+        // Test stanzas that have the wrong number of lines.
+        {
+            let two_lines = "a a a a a\na a a a a a a";
+            let four_lines = "a a a a a\na a a a a a a\na a a a a\na a a a a";
+
+            let stanza = to_stanza(&two_lines, &dict);
+            assert!(is_haiku(&stanza).is_err());
+
+            let stanza = to_stanza(&four_lines, &dict);
+            assert!(is_haiku(&stanza).is_err());
+        }
+
+        // When there are unknown words and the syllable limit is not hit, assume valid.
+        {
+            let text = "a a a a someword\n\
+                        wertgreen\n\
+                        a a a a a";
+            let stanza = to_stanza(&text, &dict);
+            assert!(is_haiku(&stanza).is_ok());
+        }
+
+        // When there are unknown words and the limit has been hit, assume invalid.
+        {
+            let text = "a a a a a toolong\n\
+                        a a a a a a a\n\
+                        a a a a a";
+            let stanza = to_stanza(&text, &dict);
+            assert!(is_haiku(&stanza).is_err());
+        }
     }
 }
