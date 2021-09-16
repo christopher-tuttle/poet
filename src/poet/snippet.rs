@@ -152,9 +152,9 @@ impl<'a> Stanza<'a> {
 /// function assumes the Stanza is valid.
 ///
 /// Returns:
-/// - `Ok(true)` if valid.
+/// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with a reason why.
-fn is_haiku(stanza: &Stanza) -> Result<bool, String> {
+fn is_haiku(stanza: &Stanza) -> Result<(), String> {
     if stanza.num_lines() != 3 {
         return Err(format!(
             "Haikus have 3 lines but the stanza has {}.",
@@ -181,7 +181,7 @@ fn is_haiku(stanza: &Stanza) -> Result<bool, String> {
         }
     }
     if errors.is_empty() {
-        return Ok(true);
+        return Ok(());
     } else {
         return Err(errors);
     }
@@ -439,7 +439,7 @@ mod tests {
               Quacking constantly\n";
             let stanza = to_stanza(text, &dict);
             assert!(!stanza.has_unknown_words()); // Test invariant.
-            assert_eq!(is_haiku(&stanza), Ok(true));
+            assert_eq!(is_haiku(&stanza), Ok(()));
         }
 
         // If all the words are known and the number of syllables are not correct,
