@@ -10,9 +10,10 @@
 
         <p><em>Look up a single word:</em>
         <form action="/lookup">
-          <input name="term" type=text>
+          <input id="term" name="term" type=text>
           <input type="submit" value="Lookup">
         </form>
+	<div id="lookupoutput"></div>
         </p>
 
         <p><i>Analyze some text:</i>

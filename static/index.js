@@ -2,9 +2,9 @@
 // When the timer expires, any existing request is canceled and a new
 // request is sent.
 const REQUEST_DELAY = 500;
-let typingTimer = null;
+let typingTimer;
 // This is the pending request, if any. 
-let xhr = null;
+let xhr;
 
 // This is a trick for installing listener after the page is ready.
 document.addEventListener("DOMContentLoaded", function(event) { 
