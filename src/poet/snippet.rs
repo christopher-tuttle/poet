@@ -131,6 +131,9 @@ impl<'a> Stanza<'a> {
             ));
             out.push('\n');
         }
+        if self.has_unknown_words() {
+            out.push_str(&format!("Warning: The text has some unknown words. Analysis may suffer.\n"));
+        }
         return out;
     }
 
@@ -155,30 +158,117 @@ impl<'a> Stanza<'a> {
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with a reason why.
 fn is_haiku(stanza: &Stanza) -> Result<(), String> {
-    if stanza.num_lines() != 3 {
+    check_stanza_has_num_lines(stanza, 3)?;
+
+    let mut errors = String::new();
+    for (i, expected_syllables) in [5, 7, 5].iter().enumerate() {
+        if let Err(info) = check_line_has_num_syllables(&stanza.lines[i], *expected_syllables) {
+            errors.push_str(&info);
+        }
+    }
+    if errors.is_empty() {
+        return Ok(());
+    } else {
+        return Err(errors);
+    }
+}
+
+/// Returns whether the given Stanza is probably a Shakespearean Sonnet.
+///
+/// If all the words are known, the result will be accurate. If some are unknown
+/// and they could possibly fill out lines that are otherwise too short, this
+/// function assumes the Stanza is valid.
+///
+/// Returns:
+/// - `Ok(())` if valid.
+/// - `Err(info)` if not valid, with a reason why.
+fn is_shakespearean_sonnet(stanza: &Stanza) -> Result<(), String> {
+    check_stanza_has_num_lines(stanza, 14)?;
+
+    let mut errors = String::new();
+    for line in &stanza.lines {
+        if let Err(info) = check_line_has_num_syllables(&line, 10) {
+            errors.push_str(&info);
+        }
+    }
+    let rhyming_lines = [(0, 2), (1, 3), (4, 6), (5, 7), (8, 10), (9, 11), (12, 13)];
+    for (a, b) in rhyming_lines {
+        if let Err(info) = check_lines_rhyme(&stanza.lines[a], &stanza.lines[b]) {
+            errors.push_str(&format!("error with lines {} and {}: {} ", a, b, info));
+        }
+    }
+
+    if errors.is_empty() {
+        return Ok(());
+    } else {
+        return Err(errors);
+    }
+}
+
+/// Checks that the two given lines rhyme.
+///
+/// Rhyming is currently that they share the same last syllable. This is conservative and treats
+/// unknown words as correct.
+fn check_lines_rhyme(a: &Line, b: &Line) -> Result<(), String> {
+    let a_last = a.tokens.last().unwrap();
+    let b_last = b.tokens.last().unwrap();
+    if a_last.entry.is_none() || b_last.entry.is_none() {
+        return Ok(());
+    }
+
+    if a_last.entry.unwrap().rhymes_with(&b_last.entry.unwrap()) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{:?} and {:?} don't rhyme",
+            &a_last.entry, &b_last.entry
+        ))
+    }
+}
+
+/// Checks that the Stanza has exactly the given number of lines.
+///
+/// Returns:
+/// - `Ok(())` if valid.
+/// - `Err(info)` if not valid, with a reason why.
+fn check_stanza_has_num_lines(stanza: &Stanza, n: usize) -> Result<(), String> {
+    if stanza.num_lines() != n {
         return Err(format!(
-            "Haikus have 3 lines but the stanza has {}.",
+            "Expected {} lines but the stanza has {}.",
+            n,
             stanza.num_lines()
         ));
     }
+    Ok(())
+}
+
+/// Checks that the given Line has the given number of syllables.
+///
+/// This is conservative in the face of unknown words. If some words are unknown
+/// and the number of syllables is short of the target, it will assume that the
+/// line is valid.
+///
+/// Returns:
+/// - `Ok(())` if valid.
+/// - `Err(info)` if not valid, with reason why.
+fn check_line_has_num_syllables(line: &Line, expected: i32) -> Result<(), String> {
     let mut errors = String::new();
-    for (i, expected_syllables) in [5, 7, 5].iter().enumerate() {
-        let num_syllables = stanza.lines[i].num_syllables();
-        if stanza.lines[i].has_unknown_words() {
-            if num_syllables >= *expected_syllables {
-                errors.push_str(&format!(
-                    "line {} has unknown words and {} syllables already, so it will exceed \
-                        the limit of {}. ",
-                    i, num_syllables, expected_syllables
-                ));
-            }
-            // Assume that the line is ok.
-        } else if num_syllables != *expected_syllables {
+
+    let num_syllables = line.num_syllables();
+    if line.has_unknown_words() {
+        if num_syllables >= expected {
             errors.push_str(&format!(
-                "line {} has {} syllables but should have {}. ",
-                i, num_syllables, expected_syllables
+                "line {} has unknown words and {} syllables already, so it will exceed \
+                    the limit of {}. ",
+                line.raw_text, num_syllables, expected
             ));
         }
+        // Assume that the line is ok.
+    } else if num_syllables != expected {
+        errors.push_str(&format!(
+            "line {} has {} syllables but should have {}. ",
+            line.raw_text, num_syllables, expected
+        ));
     }
     if errors.is_empty() {
         return Ok(());
@@ -273,6 +363,12 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
             println!("***** HAIKU *****\n");
         }
         println!("====== STANZA ======\n{}", s.summarize_to_text());
+        if s.num_lines() == 14 {
+            println!(
+                "Analysis as a Shakespearean Sonnet:\n{:?}",
+                is_shakespearean_sonnet(&s)
+            );
+        }
     }
 }
 
@@ -424,13 +520,6 @@ mod tests {
         let mut dict = Dictionary::new();
         dict.insert_all(&test_dictionary);
 
-        // This test helper assumes/requires there is only one Stanza to extract.
-        fn to_stanza<'a>(text: &str, dict: &'a Dictionary) -> Stanza<'a> {
-            let mut stanzas = get_stanzas_from_text(&text, &dict);
-            assert_eq!(stanzas.len(), 1);
-            stanzas.pop().unwrap()
-        }
-
         // Valid haikus with all words in the dictionary should be valid.
         {
             let text = "\
@@ -493,4 +582,140 @@ mod tests {
             assert!(is_haiku(&stanza).is_err());
         }
     }
+
+    /// This test helper parses `text` to extract exactly one `Stanza`.
+    ///
+    /// It requires there is exactly one in the input.
+    fn to_stanza<'a>(text: &str, dict: &'a Dictionary) -> Stanza<'a> {
+        let mut stanzas = get_stanzas_from_text(&text, &dict);
+        assert_eq!(stanzas.len(), 1);
+        stanzas.pop().unwrap()
+    }
+
+    mod is_shakespearean_sonnet {
+        use super::*;
+
+        #[test]
+        fn test_requires_14_lines() {
+            let test_dictionary = vec!["a AH0"];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
+            let line = "a a a a a a a a a a\n";
+            let too_short = to_stanza(&line.repeat(13), &dict);
+            assert!(is_shakespearean_sonnet(&too_short).is_err());
+
+            let correct = to_stanza(&line.repeat(14), &dict);
+            assert!(is_shakespearean_sonnet(&correct).is_ok());
+
+            let too_long = to_stanza(&line.repeat(15), &dict);
+            assert!(is_shakespearean_sonnet(&too_long).is_err());
+        }
+
+        #[test]
+        fn test_lines_must_have_10_syllables() {
+            let test_dictionary = vec!["a AH0"];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
+            let full_line = "a a a a a a a a a a\n";
+            let short_line = "a a a a a a a a a\n";
+            let long_line = "a a a a a a a a a a a\n";
+
+            // Just test inserting a short or long line in two spots in the middle.
+            // This is cheating a bit with coverage but a lot is covered with the
+            // Haiku tests already, including unknown word handling.
+            let prose_short = format!(
+                "{}{}{}",
+                &full_line.repeat(8),
+                &short_line,
+                &full_line.repeat(5)
+            );
+            let prose_long = format!(
+                "{}{}{}",
+                &full_line.repeat(3),
+                &long_line,
+                &full_line.repeat(10)
+            );
+
+            let too_short = to_stanza(&prose_short, &dict);
+            assert!(is_shakespearean_sonnet(&too_short).is_err());
+            let too_long = to_stanza(&prose_long, &dict);
+            assert!(is_shakespearean_sonnet(&too_long).is_err());
+        }
+
+        #[test]
+        fn test_rhyming_pattern() {
+            // Sonnet lines should match the rhyming pattern ABAB CDCD EFEF GG.
+            let poem_dict_entries = vec![
+                // These are the words from the original poem.
+                "aloud AH0 L AW1 D",
+                "apart AH0 P AA1 R T",
+                "crowd K R AW1 D",
+                "ferns F ER1 N Z",
+                "gazelle G AH0 Z EH1 L",
+                "give G IH1 V",
+                "group G R UW1 P",
+                "live L IH1 V", // live(2) in cmudict.
+                "poop P UW1 P",
+                "smart S M AA1 R T",
+                "spiteful S P AY1 T F AH0 L",
+                "terns T ER1 N Z",
+                "unwell AH0 N W EH1 L",
+                "unimpressible AH2 N IH2 M P R EH1 S AH0 B AH0 L",
+                // These are some other words that don't rhyme with those.
+                "one W AH1 N",
+                "zebra Z IY1 B R AH0", // 2 syllables.
+                "electroplating IH2 L EH1 K T R AH0 P L EY2 T IH0 NG", // 5 syllables.
+            ];
+            let mut poem_dict = Dictionary::new();
+            poem_dict.insert_all(&poem_dict_entries);
+
+            let poem = "\
+                A tricksy girl named Stella once did live\n\
+                among acacia thorns and ng’ombe poop.\n\
+                In Tanzanian hinterlands rains give\n\
+                sweet life to every possible food group.\n\
+                But in this verdant, fertile land of ferns,\n\
+                inhabited by bustards, storks, gazelle,\n\
+                and lions, warthogs, bees, gnats, buzzards, terns,\n\
+                our dearest Stella found herself unwell.\n\
+                She’d hoped to have made friends, but she was smart.\n\
+                Schoolkids at her poked fun, in jests spiteful.\n\
+                Performance set her in a class apart\n\
+                that left her classmates unimpressible.\n\
+                Post-class one day, and distanced from the crowd,\n\
+                our Stella pondered friendlessness aloud.\n";
+
+            {
+                // Original, correct version shoudld be ok.
+                let stanza = to_stanza(&poem, &poem_dict);
+                assert!(is_shakespearean_sonnet(&stanza).is_ok());
+            }
+
+            // For the last word in each line, replace it with another word of the same length
+            // that doesn't rhyme, and verify that the test fails.
+            let replacements = [
+                ("live", "one"),
+                ("poop", "one"),
+                ("give", "one"),
+                ("group", "one"),
+                ("ferns", "one"),
+                ("gazelle", "zebra"),
+                ("terns", "one"),
+                ("unwell", "zebra"),
+                ("smart", "one"),
+                ("spiteful", "zebra"),
+                ("apart", "zebra"),
+                ("unimpressible", "electroplating"),
+                ("crowd", "one"),
+                ("aloud", "zebra"),
+            ];
+            for (old, new) in replacements {
+                let text = poem.replace(old, new);
+                let stanza = to_stanza(&text, &poem_dict);
+                assert!(is_shakespearean_sonnet(&stanza).is_err());
+            }
+        }
+    } // mod is_shakespearean_sonnet
 }

@@ -130,6 +130,11 @@ impl Entry {
         }
         return result;
     }
+
+    pub fn rhymes_with(&self, other: &Self) -> bool {
+        // This is a hack but it effectively compares the last syllable of the two words.
+        return self.similarity_prefix(1) == other.similarity_prefix(1);
+    }
 }
 
 /// Computes a similarity score between two words. Higher scores are more similar.
