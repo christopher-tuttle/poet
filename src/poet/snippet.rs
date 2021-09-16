@@ -141,7 +141,12 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
     let mut stanza = Stanza::new();
     for raw_line in input.lines() {
         let line = raw_line.trim();
-        // Finalize the current stanza at each new line.
+        // Skip comment lines.
+        if line.starts_with('#') {
+            continue;
+        }
+
+        // Finalize the current stanza at each new empty line.
         if line.is_empty() {
             if !stanza.lines.is_empty() {
                 output.push(stanza);
