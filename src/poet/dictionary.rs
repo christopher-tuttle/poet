@@ -240,18 +240,21 @@ impl Dictionary {
     }
 
     /// Inserts a single entry.
+    #[cfg(test)]  // TODO: Remove?
     pub fn insert(&mut self, entry: Entry) {
         self.insert_internal(entry);
         self.reverse_list.sort();
     }
 
     /// Inserts a single entry as though it would appear as a single line of the cmudict file.
+    #[cfg(test)]  // TODO: Remove?
     pub fn insert_raw(&mut self, line: &str) {
         let entry = Entry::new(line);
         self.insert(entry);
     }
 
     /// Inserts all of the items in `lines` as though they were individually insert_raw()d.
+    #[cfg(test)]  // TODO: Remove?
     pub fn insert_all(&mut self, lines: &Vec<&str>) {
         for line in lines {
             let entry = Entry::new(line);
@@ -272,6 +275,7 @@ impl Dictionary {
     }
 
     /// Returns the number of entries in the dictionary.
+    #[cfg(test)]  // TODO: Remove?
     pub fn len(&self) -> usize {
         return self.entries.len();
     }
