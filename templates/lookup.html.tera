@@ -8,6 +8,14 @@
 	<p>The query was <b> {{ query }} </b></p>
 	{% if entry_info %}
 		<p>Found: <code>{{ entry_info }}</code></p>
+		{% for label, group in word_groups %}
+			<h2>{{ label }}</h2>
+			<ul>
+			{% for word in group %}
+				<li><b>{{word.word}}</b> (score {{word.score}})</li>
+			{% endfor %}
+			</ul>
+		{% endfor %}
 		<p>Potential rhymes:
 			{% for word in similar_words %}
 				{{ word }}, 

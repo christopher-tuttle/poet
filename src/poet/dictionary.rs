@@ -28,6 +28,7 @@
 //! * <https://cmusphinx.github.io/wiki/tutorialdict/>
 //! * <http://www.speech.cs.cmu.edu/tools/lextool.html>
 //!
+use rocket::serde::Serialize;
 use std::cmp::Ordering;
 use std::error::Error;
 
@@ -174,17 +175,24 @@ pub struct Dictionary {
 }
 
 /// Represents a single word along with associated meta-data.
-#[derive(Debug, Eq)]
+// NOTE! If this structure is changed, verify that the templates still render.
+#[derive(Clone, Debug, Eq, Serialize)]
+#[serde(crate = "rocket::serde")]
 pub struct SimilarWord {
     /// The word.
     pub word: String,
+
+    /// The number of syllables in `word`.
+    pub syllables: i32,
 
     /// Larger scores represent higher similarity.
     pub score: i32,
 }
 
 /// Return value for Dictionary::similar(), holding all the results.
-#[derive(Debug)]
+// NOTE! If this structure is changed, verify that the templates still render.
+#[derive(Clone, Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
 pub struct SimilarResult {
     /// All of the similar words sorted decreasing by similarity.
     pub words: Vec<SimilarWord>,
@@ -306,6 +314,7 @@ impl Dictionary {
                 let other_entry = self.lookup(t).unwrap();
                 result.words.push(SimilarWord {
                     word: t.clone(),
+                    syllables: other_entry.syllables,
                     score: similarity_score(&entry.unwrap().phonemes, &other_entry.phonemes),
                 });
             }

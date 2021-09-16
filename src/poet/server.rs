@@ -4,6 +4,7 @@ use rocket::form::Form;
 use rocket::serde::Serialize;
 use rocket::State;
 use rocket_dyn_templates::Template;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use crate::poet::*;
@@ -19,9 +20,18 @@ struct ServerState {
 #[derive(Serialize)]
 #[serde(crate = "rocket::serde")]
 struct LookupTemplateContext<'a> {
+    /// The word being looked up.
     query: &'a str,
+
+    /// Metadata about the query word;
     entry_info: Option<String>,
+
+    /// All of the words, sorted in decreasing order of similarity.
     similar_words: Vec<String>,
+
+    /// All of the words, grouped in various ways (the key), sorted in decreasing order of
+    /// simlarity.
+    word_groups: BTreeMap<String, Vec<dictionary::SimilarWord>>,
 }
 
 /// Handler for querying the dictionary for a single term.
@@ -31,12 +41,19 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         query: term,
         entry_info: None,
         similar_words: vec![],
+        word_groups: BTreeMap::new(),
     };
 
     if let Some(entry) = state.dict.lookup(term) {
         context.entry_info = Some(format!("{:?}", entry));
         for word in state.dict.similar(term).words {
             context.similar_words.push(word.word.clone());
+            let group = format!("Rhymes with {} syllables", word.syllables);
+            if let Some(v) = context.word_groups.get_mut(&group) {
+                v.push(word.clone());
+            } else {
+                context.word_groups.insert(group, vec![word.clone()]);
+            }
         }
     }
     return Template::render("lookup", context);
