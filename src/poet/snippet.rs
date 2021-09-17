@@ -28,6 +28,9 @@ pub struct Line<'a> {
     /// The original, user-entered text for the full line.
     pub raw_text: String,
 
+    /// The line number of the orignal line, 1-indexed.
+    pub num: usize,
+
     /// The tokenized version of `raw_text`.
     pub tokens: Vec<Token<'a>>,
 }
@@ -37,12 +40,14 @@ impl<'a> Line<'a> {
     ///
     /// Arguments:
     /// * `raw` - A non-empty line from a poem, e.g. `Roses are red,`.
+    /// * `line_num` - The 1-indexed line number from the original source.
     /// * `dict` - The dictionary to use for word lookups.
     ///
     /// Lifetime note: the `Dictionary` must outlive the returned `Line`.
-    fn new_from_line<'b>(raw: &str, dict: &'b Dictionary) -> Line<'b> {
+    fn new_from_line<'b>(raw: &str, line_num: usize, dict: &'b Dictionary) -> Line<'b> {
         let mut result = Line {
             raw_text: raw.to_string(),
+            num: line_num,
             tokens: vec![],
         };
 
@@ -132,7 +137,9 @@ impl<'a> Stanza<'a> {
             out.push('\n');
         }
         if self.has_unknown_words() {
-            out.push_str(&format!( "Warning: The text has some unknown words. Analysis may suffer.\n"));
+            out.push_str(&format!(
+                "Warning: The text has some unknown words. Analysis may suffer.\n"
+            ));
         }
         return out;
     }
@@ -194,7 +201,7 @@ fn is_shakespearean_sonnet(stanza: &Stanza) -> Result<(), String> {
     let rhyming_lines = [(0, 2), (1, 3), (4, 6), (5, 7), (8, 10), (9, 11), (12, 13)];
     for (a, b) in rhyming_lines {
         if let Err(info) = check_lines_rhyme(&stanza.lines[a], &stanza.lines[b]) {
-            errors.push_str(&format!("error with lines {} and {}: {} ", a, b, info));
+            errors.push_str(&info);
         }
     }
 
@@ -220,8 +227,11 @@ fn check_lines_rhyme(a: &Line, b: &Line) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "{:?} and {:?} don't rhyme",
-            &a_last.entry, &b_last.entry
+            "lines {} and {}: the words {} and {} don't rhyme?\n",
+            a.num,
+            b.num,
+            &a_last.entry.unwrap(),
+            &b_last.entry.unwrap()
         ))
     }
 }
@@ -234,7 +244,7 @@ fn check_lines_rhyme(a: &Line, b: &Line) -> Result<(), String> {
 fn check_stanza_has_num_lines(stanza: &Stanza, n: usize) -> Result<(), String> {
     if stanza.num_lines() != n {
         return Err(format!(
-            "Expected {} lines but the stanza has {}.",
+            "Expected {} lines but the stanza has {}.\n",
             n,
             stanza.num_lines()
         ));
@@ -259,15 +269,15 @@ fn check_line_has_num_syllables(line: &Line, expected: i32) -> Result<(), String
         if num_syllables >= expected {
             errors.push_str(&format!(
                 "line {} has unknown words and {} syllables already, so it will exceed \
-                    the limit of {}. ",
-                line.raw_text, num_syllables, expected
+                    the limit of {}. \n",
+                line.num, num_syllables, expected
             ));
         }
         // Assume that the line is ok.
     } else if num_syllables != expected {
         errors.push_str(&format!(
-            "line {} has {} syllables but should have {}. ",
-            line.raw_text, num_syllables, expected
+            "line {} has {} syllables but should have {}. \n",
+            line.num, num_syllables, expected
         ));
     }
     if errors.is_empty() {
@@ -311,7 +321,7 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
     // will be used as the title.
     let mut candidate_title: Option<String> = None;
 
-    for raw_line in input.lines() {
+    for (line_num, raw_line) in input.lines().enumerate() {
         let line = raw_line.trim();
         // Skip comment lines.
         if line.starts_with('#') {
@@ -338,7 +348,7 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
             }
             continue;
         }
-        stanza.lines.push(Line::new_from_line(line, dict));
+        stanza.lines.push(Line::new_from_line(line, line_num, dict));
     }
     // Finalize last stanza.
     if stanza.num_lines() >= 2 {
@@ -359,15 +369,15 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     let raw_input = std::fs::read_to_string(path).unwrap();
     let stanzas = get_stanzas_from_text(&raw_input, dict);
     for s in stanzas {
-        if is_haiku(&s).is_ok() {
-            println!("***** HAIKU *****\n");
-        }
         println!("====== STANZA ======\n{}", s.summarize_to_text());
         if s.num_lines() == 14 {
-            println!(
-                "Analysis as a Shakespearean Sonnet:\n{:?}",
-                is_shakespearean_sonnet(&s)
-            );
+            match is_shakespearean_sonnet(&s) {
+                Ok(_) => println!("This is a valid Shakespearean Sonnet!"),
+                Err(txt) => println!("This isn't a Shakespearean Sonnet because:\n{}\n", &txt),
+            }
+        }
+        if is_haiku(&s).is_ok() {
+            println!("What a great haiku!\n\n");
         }
     }
 }
