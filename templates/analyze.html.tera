@@ -10,12 +10,15 @@
 	<hr>
 	
 	<p><b>Trial rendering of analysis:</b></p>
-	{%- for line in lines -%}
-		<pre>
-		{%- for word in line -%}
-                    <span class="{{ word.css_class }}">{{ word.text }} </span>
-                {%- endfor -%}
-		</pre>
-	{% endfor %}
+	<pre>{% for line in lines %}
+{% for word in line %}<span class="{{ word.css_class }}">{{ word.text }} </span>{% endfor %}
+	{%- endfor %}</pre>
+
+	<p><b>The font way</b> </p>
+	<p style="font-family:verdana">
+	{% for line in lines %}
+	 	{% for word in line %}<span class="{{ word.css_class }}">{{ word.text }} </span>{% endfor %}<br>
+	{%- endfor %}
+	</p>
 </body>
 </html>
