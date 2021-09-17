@@ -64,7 +64,7 @@ impl<'a> Line<'a> {
         let mut num_syllables = 0;
         for token in &self.tokens {
             if let Some(entry) = &token.entry {
-                num_syllables += entry.syllables;
+                num_syllables += entry.num_syllables();
             }
         }
         return num_syllables;
@@ -132,7 +132,7 @@ impl<'a> Stanza<'a> {
             out.push('\n');
         }
         if self.has_unknown_words() {
-            out.push_str(&format!("Warning: The text has some unknown words. Analysis may suffer.\n"));
+            out.push_str(&format!( "Warning: The text has some unknown words. Analysis may suffer.\n"));
         }
         return out;
     }

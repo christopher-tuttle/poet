@@ -83,8 +83,8 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
         return format!(
             "{} (<code>{}</code>) [{} syllables] with {} similar words like:<br>{}",
             term,
-            entry.phonemes.join(" "),
-            entry.syllables,
+            entry.phonemes,
+            entry.num_syllables(),
             num_similar,
             examples
         );

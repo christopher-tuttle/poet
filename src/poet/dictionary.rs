@@ -31,6 +31,120 @@
 use rocket::serde::Serialize;
 use std::cmp::Ordering;
 use std::error::Error;
+use std::fmt;
+
+/// Represents the phonemes of a word, in ARPABET / cmudict format.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Phonemes {
+    /// The individual phonemes as listed, in the original order e.g. `["SH", "R", "IH1", "M", "P"]`.
+    pub phonemes: Vec<String>,
+
+    /// The number of syllables, identified by the number of vowel sounds.
+    syllables: i32,
+}
+
+impl Phonemes {
+    fn new() -> Phonemes {
+        Phonemes {
+            phonemes: vec![],
+            syllables: 0,
+        }
+    }
+
+    /// Initializes from the given sequence.
+    ///
+    /// Args:
+    /// * `tokens` - A slice like &["SH", "R", "IH1", "M", "P"], e.g. from a raw input.
+    fn from_slice(&mut self, tokens: &[&str]) {
+        self.phonemes = Vec::with_capacity(tokens.len());
+        self.syllables = 0;
+
+        use regex::Regex;
+        lazy_static! {
+            // This matches phonemes like "AA1", "N" and "AH0". If there is an integer
+            // part, it's a vowel sound.
+            static ref PHONEME_RE: Regex = Regex::new(r"[A-Z]+([0-9]+)?").unwrap();
+        }
+
+        for ph in tokens {
+            let ph_cap = PHONEME_RE.captures(&ph).unwrap();
+            self.phonemes.push(String::from(&ph_cap[0]));
+            // Phonemes with integers indicate the main vowel sounds.
+            if ph_cap.get(1).is_some() {
+                self.syllables += 1;
+            }
+        }
+    }
+
+    /// Returns the number of syllables in the word.
+    pub fn num_syllables(&self) -> i32 {
+        self.syllables
+    }
+
+    /// Returns a string that, when used as a sort key, places similar sequences together.
+    ///
+    /// This is just the reversed phoneme sequence.
+    fn similarity_key(&self) -> String {
+        let mut result = String::with_capacity(4 * 100); // 100 chars should be plenty.
+        for ph in self.phonemes.iter().rev() {
+            result.push_str(ph);
+            result.push(' ');
+        }
+        return result;
+    }
+
+    /// Returns the phonemes for the last n syllables, reversed (for sorting).
+    ///
+    /// This is used for selecting ranges of similar words sorted by similarity_keys.
+    fn last_n_syllables(&self, syllable_count: usize) -> String {
+        let mut result = String::with_capacity(4 * 100); // 100 chars should be plenty.
+        let mut vowel_count: usize = 0;
+        for ph in self.phonemes.iter().rev() {
+            let is_vowel = ph.matches(char::is_numeric).count() > 0;
+            result.push_str(ph);
+            result.push(' ');
+
+            if is_vowel {
+                vowel_count += 1;
+                if vowel_count >= syllable_count {
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
+    /// Returns whether this rhymes with another set of phonemes.
+    pub fn rhymes_with(&self, other: &Self) -> bool {
+        // This is a hack but it effectively compares the last syllable of the two words.
+        return self.last_n_syllables(1) == other.last_n_syllables(1);
+    }
+
+    /// Computes a similarity score between two words. Higher scores are more similar.
+    ///
+    /// Args:
+    /// * `a_phonemes` - The phonemes for the first word.
+    /// * `b_phonemes` - The phonemes for the second word.
+    ///
+    fn similarity_score(&self, other: &Self) -> i32 {
+        let mut score: i32 = 0;
+
+        for (a, b) in self.phonemes.iter().rev().zip(other.phonemes.iter().rev()) {
+            if a == b {
+                score += 1;
+            } else {
+                break;
+            }
+        }
+        return score;
+    }
+}
+
+impl fmt::Display for Phonemes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.phonemes.join(" "))
+    }
+}
 
 /// An Entry represents a single word or variant with its associated metadata.
 ///
@@ -39,12 +153,10 @@ use std::error::Error;
 pub struct Entry {
     /// The term as listed in the dictionary, e.g. "flower", "aluminium(2)", "let's", "a.m.".
     pub text: String,
-    /// The individual phonemes as listed, in the original order e.g. `["SH", "R", "IH1", "M", "P"]`.
-    pub phonemes: Vec<String>,
+    /// The phonemes of the word e.g. `["SH", "R", "IH1", "M", "P"]`.
+    pub phonemes: Phonemes,
     /// The variant, e.g. 2 for the term `aluminium(2)`. Default 1.
     pub variant: i32,
-    /// The number of syllables, identified by the number of vowel sounds.
-    pub syllables: i32,
 }
 
 impl Entry {
@@ -75,86 +187,44 @@ impl Entry {
             // This matches the term and optional (N) suffix, e.g. from "aalborg(2)".
             // Capture group 1 has the term text and capture 3 has the integer, if any.
             static ref TERM_RE: Regex = Regex::new(r"([^ ()#]*)(\(([0-9]+)\))?").unwrap();
-            // This matches phonemes like "AA1", "N" and "AH0". If there is an integer
-            // part, it's a vowel sound.
-            static ref PHONEME_RE: Regex = Regex::new(r"[A-Z]+([0-9]+)?").unwrap();
         }
         let tokens: Vec<&str> = trimmed_line.split_whitespace().collect();
 
         let term_cap = TERM_RE.captures(&tokens[0]).unwrap();
         let mut result = Entry {
             text: String::from(&term_cap[0]),
-            phonemes: Vec::with_capacity(tokens.len() - 1),
+            phonemes: Phonemes::new(),
             variant: 1,
-            syllables: 0,
         };
         if term_cap.get(3).is_some() {
             result.variant = term_cap[3].parse().unwrap();
         }
 
-        for ph in &tokens[1..] {
-            let ph_cap = PHONEME_RE.captures(&ph).unwrap();
-            result.phonemes.push(String::from(&ph_cap[0]));
-            // Phonemes with integers indicate the main vowel sounds.
-            if ph_cap.get(1).is_some() {
-                result.syllables += 1;
-            }
-        }
+        result.phonemes.from_slice(&tokens[1..]);
 
         return result;
     }
 
+    /// Returns a string that, when used as a sort key, places similar words together.
     fn similarity_key(&self) -> String {
-        let mut result = String::with_capacity(4 * 100); // 100 chars should be plenty.
-        for ph in self.phonemes.iter().rev() {
-            result.push_str(ph);
-            result.push(' ');
-        }
-        result.push_str(&self.text); // To disambiguate homonyms.
-        return result;
+        // NOTE: This is mostly used as an internal data structure hack that could
+        // be done with a comparator.
+        let mut key = self.phonemes.similarity_key();
+        key.push_str(&self.text); // To disambiguate homonyms.
+        return key;
     }
 
     fn similarity_prefix(&self, syllable_count: usize) -> String {
-        let mut result = String::with_capacity(4 * 100); // 100 chars should be plenty.
-        let mut vowel_count: usize = 0;
-        for ph in self.phonemes.iter().rev() {
-            let is_vowel = ph.matches(char::is_numeric).count() > 0;
-            result.push_str(ph);
-            result.push(' ');
-
-            if is_vowel {
-                vowel_count += 1;
-                if vowel_count >= syllable_count {
-                    break;
-                }
-            }
-        }
-        return result;
+        return self.phonemes.last_n_syllables(syllable_count);
     }
 
     pub fn rhymes_with(&self, other: &Self) -> bool {
-        // This is a hack but it effectively compares the last syllable of the two words.
-        return self.similarity_prefix(1) == other.similarity_prefix(1);
+        return self.phonemes.rhymes_with(&other.phonemes);
     }
-}
 
-/// Computes a similarity score between two words. Higher scores are more similar.
-///
-/// Args:
-/// * `a_phonemes` - The phonemes for the first word.
-/// * `b_phonemes` - The phonemes for the second word.
-///
-fn similarity_score(a_phonemes: &Vec<String>, b_phonemes: &Vec<String>) -> i32 {
-    let mut score: i32 = 0;
-
-    for (a, b) in a_phonemes.iter().rev().zip(b_phonemes.iter().rev()) {
-        if a == b {
-            score += 1;
-        } else {
-            break;
-        }
+    pub fn num_syllables(&self) -> i32 {
+        return self.phonemes.num_syllables();
     }
-    return score;
 }
 
 /// A container for a collection of entries.
@@ -253,21 +323,21 @@ impl Dictionary {
     }
 
     /// Inserts a single entry.
-    #[cfg(test)]  // TODO: Remove?
+    #[cfg(test)] // TODO: Remove?
     pub fn insert(&mut self, entry: Entry) {
         self.insert_internal(entry);
         self.reverse_list.sort();
     }
 
     /// Inserts a single entry as though it would appear as a single line of the cmudict file.
-    #[cfg(test)]  // TODO: Remove?
+    #[cfg(test)] // TODO: Remove?
     pub fn insert_raw(&mut self, line: &str) {
         let entry = Entry::new(line);
         self.insert(entry);
     }
 
     /// Inserts all of the items in `lines` as though they were individually insert_raw()d.
-    #[cfg(test)]  // TODO: Remove?
+    #[cfg(test)] // TODO: Remove?
     pub fn insert_all(&mut self, lines: &Vec<&str>) {
         for line in lines {
             let entry = Entry::new(line);
@@ -288,7 +358,7 @@ impl Dictionary {
     }
 
     /// Returns the number of entries in the dictionary.
-    #[cfg(test)]  // TODO: Remove?
+    #[cfg(test)] // TODO: Remove?
     pub fn len(&self) -> usize {
         return self.entries.len();
     }
@@ -314,8 +384,11 @@ impl Dictionary {
                 let other_entry = self.lookup(t).unwrap();
                 result.words.push(SimilarWord {
                     word: t.clone(),
-                    syllables: other_entry.syllables,
-                    score: similarity_score(&entry.unwrap().phonemes, &other_entry.phonemes),
+                    syllables: other_entry.num_syllables(),
+                    score: entry
+                        .unwrap()
+                        .phonemes
+                        .similarity_score(&other_entry.phonemes),
                 });
             }
         }
@@ -333,7 +406,7 @@ mod tests {
         let entry = Entry::new("ampersand AE1 M P ER0 S AE2 N D");
         assert_eq!(entry.text, "ampersand");
         assert_eq!(
-            entry.phonemes,
+            entry.phonemes.phonemes,
             vec!["AE1", "M", "P", "ER0", "S", "AE2", "N", "D"]
         );
     }
@@ -343,7 +416,10 @@ mod tests {
         // Everything after # should be ignored.
         let entry = Entry::new("gdp G IY1 D IY1 P IY1 # abbrev ## IGN");
         assert_eq!(entry.text, "gdp");
-        assert_eq!(entry.phonemes, vec!["G", "IY1", "D", "IY1", "P", "IY1"]);
+        assert_eq!(
+            entry.phonemes.phonemes,
+            vec!["G", "IY1", "D", "IY1", "P", "IY1"]
+        );
     }
 
     #[test]
@@ -356,7 +432,10 @@ mod tests {
     fn test_parser_with_alternate_words() {
         let entry = Entry::new("amounted(2) AH0 M AW1 N IH0 D");
         assert_eq!(entry.text, "amounted(2)");
-        assert_eq!(entry.phonemes, vec!["AH0", "M", "AW1", "N", "IH0", "D"]);
+        assert_eq!(
+            entry.phonemes.phonemes,
+            vec!["AH0", "M", "AW1", "N", "IH0", "D"]
+        );
         assert_eq!(entry.variant, 2);
     }
 
@@ -368,10 +447,13 @@ mod tests {
 
     #[test]
     fn test_entry_syllable_count() {
-        assert_eq!(Entry::new("a AH0").syllables, 1);
-        assert_eq!(Entry::new("aardvark AA1 R D V AA2 R K").syllables, 2);
-        assert_eq!(Entry::new("amounted(2) AH0 M AW1 N IH0 D").syllables, 3);
-        assert_eq!(Entry::new("gdp G IY1 D IY1 P IY1").syllables, 3);
+        assert_eq!(Entry::new("a AH0").num_syllables(), 1);
+        assert_eq!(Entry::new("aardvark AA1 R D V AA2 R K").num_syllables(), 2);
+        assert_eq!(
+            Entry::new("amounted(2) AH0 M AW1 N IH0 D").num_syllables(),
+            3
+        );
+        assert_eq!(Entry::new("gdp G IY1 D IY1 P IY1").num_syllables(), 3);
     }
 
     #[test]
@@ -411,7 +493,7 @@ mod tests {
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
         let entry = dict.lookup("aardvark").unwrap(); // Or fail.
         assert_eq!(entry.text, "aardvark");
-        assert_eq!(entry.phonemes.len(), 7);
+        assert_eq!(entry.phonemes.phonemes.len(), 7);
         assert_eq!(None, dict.lookup("unknown"));
     }
 
@@ -429,30 +511,30 @@ mod tests {
         let bayous = Entry::new("bayous B AY1 UW0 Z");
         let fondues = Entry::new("fondues F AA1 N D UW0 Z");
         let virtues = Entry::new("virtues V ER1 CH UW0 Z");
-        assert_eq!(similarity_score(&bayous.phonemes, &fondues.phonemes), 2);
-        assert_eq!(similarity_score(&fondues.phonemes, &virtues.phonemes), 2);
+        assert_eq!(bayous.phonemes.similarity_score(&fondues.phonemes), 2);
+        assert_eq!(fondues.phonemes.similarity_score(&virtues.phonemes), 2);
 
         let diagram = Entry::new("diagram D AY1 AH0 G R AE2 M");
         let polygram = Entry::new("polygram P AA1 L IY2 G R AE2 M");
         let program = Entry::new("program P R OW1 G R AE2 M");
         let programme = Entry::new("programme P R OW1 G R AE2 M");
-        assert_eq!(similarity_score(&diagram.phonemes, &polygram.phonemes), 4);
-        assert_eq!(similarity_score(&diagram.phonemes, &program.phonemes), 4);
-        assert_eq!(similarity_score(&program.phonemes, &programme.phonemes), 7);
+        assert_eq!(diagram.phonemes.similarity_score(&polygram.phonemes), 4);
+        assert_eq!(diagram.phonemes.similarity_score(&program.phonemes), 4);
+        assert_eq!(program.phonemes.similarity_score(&programme.phonemes), 7);
 
         let apple = Entry::new("apple AE1 P AH0 L");
         let apple_s = Entry::new("apple's AE1 P AH0 L Z");
         let apples = Entry::new("apples AE1 P AH0 L Z");
-        assert_eq!(similarity_score(&apple.phonemes, &apple_s.phonemes), 0);
-        assert_eq!(similarity_score(&apple.phonemes, &apples.phonemes), 0);
-        assert_eq!(similarity_score(&apple_s.phonemes, &apples.phonemes), 5);
+        assert_eq!(apple.phonemes.similarity_score(&apple_s.phonemes), 0);
+        assert_eq!(apple.phonemes.similarity_score(&apples.phonemes), 0);
+        assert_eq!(apple_s.phonemes.similarity_score(&apples.phonemes), 5);
 
         let mango = Entry::new("mango M AE1 NG G OW0");
         let mangoes = Entry::new("mangoes M AE1 NG G OW0 Z");
         let mangold = Entry::new("mangold M AE1 N G OW2 L D");
-        assert_eq!(similarity_score(&mango.phonemes, &mangoes.phonemes), 0);
-        assert_eq!(similarity_score(&mango.phonemes, &mangold.phonemes), 0);
-        assert_eq!(similarity_score(&mangoes.phonemes, &mangold.phonemes), 0);
+        assert_eq!(mango.phonemes.similarity_score(&mangoes.phonemes), 0);
+        assert_eq!(mango.phonemes.similarity_score(&mangold.phonemes), 0);
+        assert_eq!(mangoes.phonemes.similarity_score(&mangold.phonemes), 0);
     }
 
     // This helper calls `dict.similar(query)` and checks that the returned words are `expected`.
