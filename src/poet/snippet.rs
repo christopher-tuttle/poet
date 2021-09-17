@@ -120,7 +120,7 @@ impl<'a> Stanza<'a> {
             out.push('\n');
             for token in &line.tokens {
                 if let Some(entry) = &token.entry {
-                    out.push_str(&format!("\t{}: {:?}\n", &token.text, &entry));
+                    out.push_str(&format!("\t{}: {}\n", &token.text, &entry));
                 } else {
                     out.push_str(&format!("\t{}: None.\n", &token.text));
                 }

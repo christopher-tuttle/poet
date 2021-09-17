@@ -227,6 +227,19 @@ impl Entry {
     }
 }
 
+impl fmt::Display for Entry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "\"{}\" ({}); variant={}, syllables={}",
+            &self.text,
+            &self.phonemes,
+            &self.variant,
+            self.num_syllables()
+        )
+    }
+}
+
 /// A container for a collection of entries.
 ///
 /// Either construct one and populate it with individual entries, or initialize one from
