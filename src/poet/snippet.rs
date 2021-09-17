@@ -495,33 +495,35 @@ mod tests {
         assert_eq!(output[1].lines.len(), 4);
     }
 
-    #[test]
-    fn test_is_haiku() {
-        let test_dictionary = vec![
-            "a AH0",
-            "a(2) EY1",
-            "bits B IH1 T S",
-            "constantly K AA1 N S T AH0 N T L IY0",
-            "crackers K R AE1 K ER0",
-            "crumbs K R AH1 M Z",
-            "duck D AH1 K",
-            "for F AO1 R",
-            "for(2) F ER0",
-            "for(3) F R ER0",
-            "of AH1 V",
-            "quacking K W AE1 K IH0 NG",
-            "searching S ER1 CH IH0 NG",
-            "streets S T R IY1 T S",
-            "the DH AH0",
-            "the(2) DH AH1",
-            "the(3) DH IY0",
-            "walked W AO1 K T",
-        ];
-        let mut dict = Dictionary::new();
-        dict.insert_all(&test_dictionary);
+    mod is_haiku {
+        use super::*;
 
-        // Valid haikus with all words in the dictionary should be valid.
-        {
+        #[test]
+        fn test_with_valid_known_words() {
+            // Valid haikus with all words in the dictionary should be valid.
+            let test_dictionary = vec![
+                "a AH0",
+                "a(2) EY1",
+                "bits B IH1 T S",
+                "constantly K AA1 N S T AH0 N T L IY0",
+                "crackers K R AE1 K ER0",
+                "crumbs K R AH1 M Z",
+                "duck D AH1 K",
+                "for F AO1 R",
+                "for(2) F ER0",
+                "for(3) F R ER0",
+                "of AH1 V",
+                "quacking K W AE1 K IH0 NG",
+                "searching S ER1 CH IH0 NG",
+                "streets S T R IY1 T S",
+                "the DH AH0",
+                "the(2) DH AH1",
+                "the(3) DH IY0",
+                "walked W AO1 K T",
+            ];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
             let text = "\
               A duck walked the streets\n\
               Searching for crumbs of crackers\n\
@@ -531,9 +533,14 @@ mod tests {
             assert_eq!(is_haiku(&stanza), Ok(()));
         }
 
-        // If all the words are known and the number of syllables are not correct,
-        // the stanza should not be valid.
-        {
+        #[test]
+        fn test_checks_exact_syllable_counts_with_known_words() {
+            let test_dictionary = vec!["a AH0"];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
+            // If all the words are known and the number of syllables are not correct,
+            // the stanza should not be valid.
             let line1_too_short = "a a a a\na a a a a a a\na a a a a";
             let line2_too_short = "a a a a a\na a a a a a\na a a a a";
             let line3_too_short = "a a a a a\na a a a a a a\na a a a";
@@ -552,8 +559,12 @@ mod tests {
             assert!(is_haiku(&stanza).is_err());
         }
 
-        // Test stanzas that have the wrong number of lines.
-        {
+        #[test]
+        fn test_requires_exactly_3_lines() {
+            let test_dictionary = vec!["a AH0"];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
             let two_lines = "a a a a a\na a a a a a a";
             let four_lines = "a a a a a\na a a a a a a\na a a a a\na a a a a";
 
@@ -564,8 +575,12 @@ mod tests {
             assert!(is_haiku(&stanza).is_err());
         }
 
-        // When there are unknown words and the syllable limit is not hit, assume valid.
-        {
+        #[test]
+        fn test_is_conservative_with_unknown_words() {
+            let test_dictionary = vec!["a AH0"];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
             let text = "a a a a someword\n\
                         wertgreen\n\
                         a a a a a";
@@ -573,8 +588,12 @@ mod tests {
             assert!(is_haiku(&stanza).is_ok());
         }
 
-        // When there are unknown words and the limit has been hit, assume invalid.
-        {
+        #[test]
+        fn test_fails_with_unknown_words_when_clearly_too_long() {
+            let test_dictionary = vec!["a AH0"];
+            let mut dict = Dictionary::new();
+            dict.insert_all(&test_dictionary);
+
             let text = "a a a a a toolong\n\
                         a a a a a a a\n\
                         a a a a a";
