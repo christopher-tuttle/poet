@@ -152,7 +152,7 @@ impl fmt::Display for Phonemes {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     /// The term as listed in the dictionary, e.g. "flower", "aluminium(2)", "let's", "a.m.".
-    pub text: String,
+    pub word: String,
     /// The phonemes of the word e.g. `["SH", "R", "IH1", "M", "P"]`.
     pub phonemes: Phonemes,
     /// The variant, e.g. 2 for the term `aluminium(2)`. Default 1.
@@ -192,7 +192,7 @@ impl Entry {
 
         let term_cap = TERM_RE.captures(&tokens[0]).unwrap();
         let mut result = Entry {
-            text: String::from(&term_cap[0]),
+            word: String::from(&term_cap[1]),
             phonemes: Phonemes::new(),
             variant: 1,
         };
@@ -210,7 +210,7 @@ impl Entry {
         // NOTE: This is mostly used as an internal data structure hack that could
         // be done with a comparator.
         let mut key = self.phonemes.similarity_key();
-        key.push_str(&self.text); // To disambiguate homonyms.
+        key.push_str(&self.dict_key()); // To disambiguate homonyms -- dict_key() is unique.
         return key;
     }
 
@@ -225,6 +225,18 @@ impl Entry {
     pub fn num_syllables(&self) -> i32 {
         return self.phonemes.num_syllables();
     }
+
+    /// Returns the text if the term were in the original dictionary.
+    ///
+    /// For the first variant, this is just the word. For later variants, it has a "(N)" suffix,
+    /// e.g. "foo" and "a(2)".
+    pub fn dict_key(&self) -> String {
+        if self.variant == 1 {
+            return self.word.clone();
+        } else {
+            return format!("{}({})", self.word, self.variant);
+        }
+    }
 }
 
 impl fmt::Display for Entry {
@@ -232,7 +244,7 @@ impl fmt::Display for Entry {
         write!(
             f,
             "\"{}\" ({}); variant={}, syllables={}",
-            &self.text,
+            &self.word,
             &self.phonemes,
             &self.variant,
             self.num_syllables()
@@ -246,15 +258,17 @@ impl fmt::Display for Entry {
 /// a text file in `cmudict.dict` format.
 #[derive(Debug)]
 pub struct Dictionary {
-    entries: std::collections::HashMap<String, Entry>,
+    entries: std::collections::HashMap<String, Vec<Entry>>,
 
-    // This stores Entry::similarity_key()s to terms. MUST REMAIN SORTED.
+    // This stores Entry::similarity_key()s to (term + variant). MUST REMAIN SORTED.
     //
-    // e.g. ("L AH0 V AH1 SH shovel", "shovel")
+    // e.g. ("L AH0 V AH1 SH shovel", ("shovel", 1))
     //
     // TODO: Replace the vector with a BTreeMap or a tree / trie.
-    // TODO: Replace the value type with a ref to the Entry.
-    reverse_list: Vec<(String, String)>,
+    //
+    // NOTE: I attempted to switch the value type to an &Entry, which turned into a
+    // lifetime mess. On a deadline; skipping for now.
+    reverse_list: Vec<(String, (String, i32))>,
 }
 
 /// Represents a single word along with associated meta-data.
@@ -361,13 +375,32 @@ impl Dictionary {
 
     fn insert_internal(&mut self, entry: Entry) {
         self.reverse_list
-            .push((entry.similarity_key(), entry.text.clone()));
-        self.entries.insert(entry.text.clone(), entry);
+            .push((entry.similarity_key(), (entry.word.clone(), entry.variant)));
+        // word is used in the forward list in order to match as many options as possible from a
+        // user's text.
+        let key = entry.word.clone();
+        if let Some(v) = self.entries.get_mut(&key) {
+            v.push(entry);
+        } else {
+            self.entries.insert(key, vec![entry]);
+        }
     }
 
-    /// Returns the entry for the given term, or None.
-    pub fn lookup(&self, term: &str) -> Option<&Entry> {
+    /// Returns the all of the Entries for the given term, or None.
+    pub fn lookup(&self, term: &str) -> Option<&Vec<Entry>> {
         return self.entries.get(term);
+    }
+
+    /// Looks up the given term and exact variant.
+    pub fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry> {
+        if let Some(v) = self.entries.get(term) {
+            for entry in v {
+                if entry.variant == variant {
+                    return Some(&entry);
+                }
+            }
+        }
+        return None;
     }
 
     /// Returns the number of entries in the dictionary.
@@ -379,32 +412,47 @@ impl Dictionary {
     /// Returns terms that share the last syllable with the given term.
     ///
     /// TODO: Replace the return value with something that doesn't have so many copies.
-    /// TODO: Make the similarity more discerning, rather than boolean on the last syllable.
-    pub fn similar(&self, term: &str) -> SimilarResult {
+    /// TODO: Make the filtering more discerning, rather than boolean on the last syllable.
+    pub fn similar(&self, query: &str) -> SimilarResult {
         let mut result = SimilarResult { words: vec![] };
 
-        let entry = self.lookup(term);
-        if entry.is_none() {
+        let query_variants = self.lookup(query);
+        if query_variants.is_none() {
             return result;
         }
 
-        let key_prefix: String = entry.unwrap().similarity_prefix(1 /* syllable */);
-        for (prefix, t) in &self.reverse_list {
-            if t == term {
-                continue;
-            }
-            if prefix.starts_with(key_prefix.as_str()) {
-                let other_entry = self.lookup(t).unwrap();
+        // The input query is just the word, so there can be several different pronunciations
+        // for the word, each of which has potentially different rhyming words.
+        //
+        // For example, "our" can be pronounced either to rhyme with "sour" or "far".
+        for query_variant in query_variants.unwrap() {
+            // Select entries in the reverse_list that have the same last syllable.
+            // NOTE: This is a "crude approximation" since it excludes some legitimate rhumes.
+            // NOTE: This is a linear scan, which sucks, but it's good enough for now.
+            let key_prefix: String = query_variant.similarity_prefix(1 /* syllable */);
+            for (prefix, (word, variant)) in &self.reverse_list {
+                if !prefix.starts_with(key_prefix.as_str()) {
+                    continue;
+                }
+                if word == query {
+                    continue; // Ignore self-syns.
+                }
+
+                // This is an exact lookup for the other word variant.
+                // Not-None because reverse_list should be 1:1 with the main map.
+                let potential_rhyme = self.lookup_variant(&word, *variant).unwrap();
+                let score = query_variant
+                    .phonemes
+                    .similarity_score(&potential_rhyme.phonemes);
                 result.words.push(SimilarWord {
-                    word: t.clone(),
-                    syllables: other_entry.num_syllables(),
-                    score: entry
-                        .unwrap()
-                        .phonemes
-                        .similarity_score(&other_entry.phonemes),
+                    word: word.clone(),
+                    syllables: potential_rhyme.num_syllables(),
+                    score: score,
                 });
             }
         }
+
+        // TODO: This mashes everything together, which is not great. Switch to grouped results.
         result.words.sort();
         return result;
     }
@@ -417,7 +465,8 @@ mod tests {
     #[test]
     fn test_parser_handles_basic_entries() {
         let entry = Entry::new("ampersand AE1 M P ER0 S AE2 N D");
-        assert_eq!(entry.text, "ampersand");
+        assert_eq!(entry.word, "ampersand");
+        assert_eq!(entry.dict_key(), "ampersand");
         assert_eq!(
             entry.phonemes.phonemes,
             vec!["AE1", "M", "P", "ER0", "S", "AE2", "N", "D"]
@@ -428,7 +477,7 @@ mod tests {
     fn test_parser_ignores_comments() {
         // Everything after # should be ignored.
         let entry = Entry::new("gdp G IY1 D IY1 P IY1 # abbrev ## IGN");
-        assert_eq!(entry.text, "gdp");
+        assert_eq!(entry.word, "gdp");
         assert_eq!(
             entry.phonemes.phonemes,
             vec!["G", "IY1", "D", "IY1", "P", "IY1"]
@@ -437,14 +486,15 @@ mod tests {
 
     #[test]
     fn test_parser_with_punctuation_in_terms() {
-        assert_eq!(Entry::new("'frisco F R IH1 S K OW0").text, "'frisco");
-        assert_eq!(Entry::new("a.m. EY2 EH1 M").text, "a.m.");
+        assert_eq!(Entry::new("'frisco F R IH1 S K OW0").word, "'frisco");
+        assert_eq!(Entry::new("a.m. EY2 EH1 M").word, "a.m.");
     }
 
     #[test]
     fn test_parser_with_alternate_words() {
         let entry = Entry::new("amounted(2) AH0 M AW1 N IH0 D");
-        assert_eq!(entry.text, "amounted(2)");
+        assert_eq!(entry.word, "amounted");
+        assert_eq!(entry.dict_key(), "amounted(2)");
         assert_eq!(
             entry.phonemes.phonemes,
             vec!["AH0", "M", "AW1", "N", "IH0", "D"]
@@ -505,9 +555,39 @@ mod tests {
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
         let entry = dict.lookup("aardvark").unwrap(); // Or fail.
-        assert_eq!(entry.text, "aardvark");
-        assert_eq!(entry.phonemes.phonemes.len(), 7);
+        assert_eq!(entry[0].word, "aardvark");
+        assert_eq!(entry[0].phonemes.phonemes.len(), 7);
         assert_eq!(None, dict.lookup("unknown"));
+    }
+
+    #[test]
+    fn test_dictionary_lookup_multi() {
+        let values = vec!["our AW1 ER0", "our(2) AW1 R", "our(3) AA1 R"];
+        let mut dict = Dictionary::new();
+        dict.insert_all(&values);
+        let entries = dict.lookup("our").unwrap(); // Or fail.
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].word, "our");
+        assert_eq!(entries[1].word, "our");
+        assert_eq!(entries[2].word, "our");
+        assert_eq!(entries[0].dict_key(), "our");
+        assert_eq!(entries[1].dict_key(), "our(2)");
+        assert_eq!(entries[2].dict_key(), "our(3)");
+        assert_eq!(entries[0].variant, 1);
+        assert_eq!(entries[1].variant, 2);
+        assert_eq!(entries[2].variant, 3);
+        assert_eq!(entries[1].phonemes.phonemes, vec!["AW1", "R"]);
+    }
+
+    #[test]
+    fn test_dictionary_lookup_variant() {
+        let values = vec!["our AW1 ER0", "our(2) AW1 R", "our(3) AA1 R"];
+        let mut dict = Dictionary::new();
+        dict.insert_all(&values);
+        assert_eq!(dict.lookup_variant("our", 2).unwrap().dict_key(), "our(2)");
+        assert_eq!(dict.lookup_variant("our", 1).unwrap().dict_key(), "our");
+        assert_eq!(dict.lookup_variant("our", 9), None);
+        assert_eq!(dict.lookup_variant("foo", 1), None);
     }
 
     #[test]
@@ -612,6 +692,30 @@ mod tests {
         let mut dict = Dictionary::new();
         dict.insert_all(&values);
         assert_similar_terms_are(&dict, "red", &vec!["read", "reade", "redd"]);
+    }
+
+    #[test]
+    fn test_similar_returns_words_for_all_variants() {
+        // These are fake pronunciations to trigger the case where
+        let values = vec![
+            "far F AA1 R",
+            "far's F AA1 R Z",
+            "our AW1 ER0",
+            "our(2) AW1 R",
+            "our(3) AA1 R",
+            "sour S AW1 ER0",
+            "sour(2) S AW1 R",
+        ];
+        let mut dict = Dictionary::new();
+        dict.insert_all(&values);
+
+        // Case: A word with a single variant should rhyme with variants of other words.
+        assert_similar_terms_are(&dict, "far", &vec!["our" /* (3) */]);
+
+        // Case: A word with many variants should return words that are similar to any variant.
+        // "sour" appears twice because both variants rhyme. (At the moment they aren't
+        // distinguishable because the phonemes aren't passed back.)
+        assert_similar_terms_are(&dict, "our", &vec!["far", "sour", "sour"]);
     }
 
     #[test]

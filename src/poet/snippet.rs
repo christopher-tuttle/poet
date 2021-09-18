@@ -17,7 +17,7 @@ pub struct Token<'a> {
     /// The corresponding `dictionary::Entry` if the word is known.
     ///
     /// Lifetime note: holds a reference into the dictionary used for lookup.
-    pub entry: Option<&'a Entry>,
+    pub entry: Option<&'a Vec<Entry>>,
     // TODO: Include span information referring to the char positions in raw_text?
     // pub raw_text: &str[],
 }
@@ -53,26 +53,13 @@ impl<'a> Line<'a> {
 
         for word in raw.split_whitespace() {
             let normalized_text = normalize_for_lookup(&word);
-            let entry_option = dict.lookup(&normalized_text);
+            let entry_vec = dict.lookup(&normalized_text);
             result.tokens.push(Token {
                 text: normalized_text,
-                entry: entry_option,
+                entry: entry_vec,
             });
         }
         result
-    }
-
-    /// Returns the number of syllables in the line.
-    ///
-    /// TODO: This may be invalid in face of variants and it ignores unknown words.
-    pub fn num_syllables(&self) -> i32 {
-        let mut num_syllables = 0;
-        for token in &self.tokens {
-            if let Some(entry) = &token.entry {
-                num_syllables += entry.num_syllables();
-            }
-        }
-        return num_syllables;
     }
 
     /// Returns whether there are any unknown words in the line.
@@ -124,16 +111,19 @@ impl<'a> Stanza<'a> {
             out.push_str(&line.raw_text);
             out.push('\n');
             for token in &line.tokens {
-                if let Some(entry) = &token.entry {
-                    out.push_str(&format!("\t{}: {}\n", &token.text, &entry));
+                if let Some(entries) = &token.entry {
+                    for (i, entry) in entries.iter().enumerate() {
+                        if i == 0 {
+                            out.push_str(&format!("\t{}: {}\n", &token.text, &entry));
+                        } else {
+                            out.push_str(&format!("\t  +-- {}\n", &entry));
+                        }
+                    }
                 } else {
                     out.push_str(&format!("\t{}: None.\n", &token.text));
                 }
             }
-            out.push_str(&format!(
-                "\t==> Line summary: {} syllables.\n",
-                line.num_syllables()
-            ));
+            // TODO: Re-introduce the line summary with the number of syllables.
             out.push('\n');
         }
         if self.has_unknown_words() {
@@ -202,21 +192,31 @@ impl<'a> std::fmt::Debug for StanzaView<'a> {
 }
 
 /// Presents a view of a `Line` in a `Stanza` where there is at most one `Entry` per word.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LineView<'a> {
     line: &'a Line<'a>,
+    indices: Vec<usize>, // Indices into line.tokens[i] to return for get_entry.
+}
+
+impl<'a> std::fmt::Debug for LineView<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.indices)
+    }
 }
 
 impl<'a> LineView<'a> {
     /// Initializes a view referring to the given line.
     fn new(l: &'a Line) -> LineView<'a> {
-        LineView { line: l }
+        LineView {
+            line: l,
+            indices: vec![0; l.tokens.len()],
+        }
     }
 
     /// Returns the `Entry` for the `idx`-th token on the line.
     pub fn get_entry(&self, idx: usize) -> Option<&Entry> {
-        if let Some(e) = self.line.tokens[idx].entry {
-            Some(e)
+        if let Some(v) = self.line.tokens[idx].entry {
+            Some(&v[self.indices[idx]])
         } else {
             None
         }
@@ -226,7 +226,7 @@ impl<'a> LineView<'a> {
     ///
     /// This is a convenience function to help with rhyming.
     pub fn last_entry(&self) -> Option<&Entry> {
-        self.get_entry(self.line.tokens.len() - 1)
+        self.get_entry(self.indices.len() - 1)
     }
 
     /// Returns the number of syllables in the line.
@@ -234,9 +234,10 @@ impl<'a> LineView<'a> {
     /// This will be an underestimate if `has_unknown_words()`.
     pub fn num_syllables(&self) -> i32 {
         let mut num_syllables = 0;
-        for tok in &self.line.tokens {
-            if let Some(entry) = tok.entry {
-                num_syllables += entry.num_syllables();
+        assert_eq!(self.indices.len(), self.line.tokens.len());
+        for (i, opt) in self.line.tokens.iter().enumerate() {
+            if let Some(tokens) = opt.entry {
+                num_syllables += tokens[self.indices[i]].num_syllables();
             }
         }
         return num_syllables;

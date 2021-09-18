@@ -44,7 +44,15 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         word_groups: BTreeMap::new(),
     };
 
-    if let Some(entry) = state.dict.lookup(term) {
+    if let Some(v) = state.dict.lookup(term) {
+        if v.len() > 1 {
+            // FIXME: Ignoring this case.
+            println!(
+                "Warning: {} has multiple results and only rendering the first.",
+                term
+            );
+        }
+        let entry = &v[0];
         context.entry_info = Some(format!("{:?}", entry));
         for word in state.dict.similar(term).words {
             context.similar_words.push(word.word.clone());
@@ -65,7 +73,15 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 /// be inserted into the page.
 #[get("/api/lookup?<term>")]
 fn api_lookup(state: &State<ServerState>, term: &str) -> String {
-    if let Some(entry) = state.dict.lookup(term) {
+    if let Some(v) = state.dict.lookup(term) {
+        if v.len() > 1 {
+            // FIXME: Ignoring this case.
+            println!(
+                "Warning: {} has multiple results and only returning one.",
+                term
+            );
+        }
+        let entry = &v[0];
         let similar_info = state.dict.similar(term);
         let num_similar = similar_info.words.len();
 
