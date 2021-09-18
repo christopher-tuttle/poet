@@ -153,6 +153,142 @@ impl<'a> Stanza<'a> {
     pub fn has_unknown_words(&self) -> bool {
         self.lines.iter().any(|l| l.has_unknown_words())
     }
+
+    /// Returns `StanzaView`s for all possible interpretations of the `Stanza`.
+    ///
+    /// This is the cartesean product of all the Tokens that have more than one
+    /// `Entry` set for them.
+    pub fn interpretations(&self) -> InterpretationsIter {
+        InterpretationsIter::new(self)
+    }
+}
+
+/// A view into a `Stanza` that has at most one Entry per word.
+///
+/// As there can be many different pronunciations of words in a Stanza, and several possible
+/// dictionary words for each spot, a Stanza may have several different "interpretations."
+///
+/// When it is time to analyze a Stanza, all of the Stanza's possible Interpretations are analyzed
+/// to see if any of them are correct (or match a pattern, etc.).
+#[derive(Clone)]
+pub struct StanzaView<'a> {
+    stanza: &'a Stanza<'a>,
+    lines: Vec<LineView<'a>>,
+}
+
+impl<'a> StanzaView<'a> {
+    /// Creates a View over the given Stanza.
+    fn new(s: &'a Stanza) -> StanzaView<'a> {
+        let mut result = StanzaView {
+            stanza: s,
+            lines: Vec::with_capacity(s.lines.len()),
+        };
+        for line in &s.lines {
+            result.lines.push(LineView::new(&line));
+        }
+        return result;
+    }
+
+    /// Returns the number of lines in the `StanzaView` (and corresponding `Stanza`).
+    pub fn num_lines(&self) -> usize {
+        self.lines.len()
+    }
+}
+
+impl<'a> std::fmt::Debug for StanzaView<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self.lines)
+    }
+}
+
+/// Presents a view of a `Line` in a `Stanza` where there is at most one `Entry` per word.
+#[derive(Clone, Debug)]
+pub struct LineView<'a> {
+    line: &'a Line<'a>,
+}
+
+impl<'a> LineView<'a> {
+    /// Initializes a view referring to the given line.
+    fn new(l: &'a Line) -> LineView<'a> {
+        LineView { line: l }
+    }
+
+    /// Returns the `Entry` for the `idx`-th token on the line.
+    pub fn get_entry(&self, idx: usize) -> Option<&Entry> {
+        if let Some(e) = self.line.tokens[idx].entry {
+            Some(e)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the `Entry` for the last token on the line.
+    ///
+    /// This is a convenience function to help with rhyming.
+    pub fn last_entry(&self) -> Option<&Entry> {
+        self.get_entry(self.line.tokens.len() - 1)
+    }
+
+    /// Returns the number of syllables in the line.
+    ///
+    /// This will be an underestimate if `has_unknown_words()`.
+    pub fn num_syllables(&self) -> i32 {
+        let mut num_syllables = 0;
+        for tok in &self.line.tokens {
+            if let Some(entry) = tok.entry {
+                num_syllables += entry.num_syllables();
+            }
+        }
+        return num_syllables;
+    }
+
+    /// Returns the line number from the original snippet corresponding to this Line.
+    pub fn num(&self) -> usize {
+        self.line.num
+    }
+
+    /// Returns whether there are any words on this line that aren't in the dictionary.
+    pub fn has_unknown_words(&self) -> bool {
+        self.line
+            .tokens
+            .iter()
+            .filter(|x| x.entry.is_none())
+            .count()
+            > 0
+    }
+}
+
+/// Generates / iterates over all possible interpretations of a `Stanza`.
+///
+/// NOTE: Currently this will only produce one `StanzaView` because the dictionary does not return
+/// multiple variants per word.
+pub struct InterpretationsIter<'a> {
+    view: StanzaView<'a>,
+    first_run: bool,
+}
+
+impl<'a> InterpretationsIter<'a> {
+    /// Creates an iterator over all interpretations of the given Stanza.
+    ///
+    /// The Stanza must outlive this iterator.
+    fn new(s: &'a Stanza) -> Self {
+        Self {
+            view: StanzaView::new(s),
+            first_run: true,
+        }
+    }
+}
+
+impl<'a> Iterator for InterpretationsIter<'a> {
+    type Item = StanzaView<'a>;
+
+    fn next(&mut self) -> Option<StanzaView<'a>> {
+        if self.first_run {
+            self.first_run = false;
+            return Some(self.view.clone());
+        }
+        return None;
+    }
 }
 
 /// Returns whether the given Stanza is probably a Haiku.
@@ -164,7 +300,7 @@ impl<'a> Stanza<'a> {
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with a reason why.
-fn is_haiku(stanza: &Stanza) -> Result<(), String> {
+fn is_haiku(stanza: &StanzaView) -> Result<(), String> {
     check_stanza_has_num_lines(stanza, 3)?;
 
     let mut errors = String::new();
@@ -189,7 +325,7 @@ fn is_haiku(stanza: &Stanza) -> Result<(), String> {
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with a reason why.
-fn is_shakespearean_sonnet(stanza: &Stanza) -> Result<(), String> {
+fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), String> {
     check_stanza_has_num_lines(stanza, 14)?;
 
     let mut errors = String::new();
@@ -216,22 +352,22 @@ fn is_shakespearean_sonnet(stanza: &Stanza) -> Result<(), String> {
 ///
 /// Rhyming is currently that they share the same last syllable. This is conservative and treats
 /// unknown words as correct.
-fn check_lines_rhyme(a: &Line, b: &Line) -> Result<(), String> {
-    let a_last = a.tokens.last().unwrap();
-    let b_last = b.tokens.last().unwrap();
-    if a_last.entry.is_none() || b_last.entry.is_none() {
+fn check_lines_rhyme(a: &LineView, b: &LineView) -> Result<(), String> {
+    let a_last_entry = a.last_entry();
+    let b_last_entry = b.last_entry();
+    if a_last_entry.is_none() || b_last_entry.is_none() {
         return Ok(());
     }
 
-    if a_last.entry.unwrap().rhymes_with(&b_last.entry.unwrap()) {
+    if a_last_entry.unwrap().rhymes_with(&b_last_entry.unwrap()) {
         Ok(())
     } else {
         Err(format!(
             "lines {} and {}: the words {} and {} don't rhyme?\n",
-            a.num,
-            b.num,
-            &a_last.entry.unwrap(),
-            &b_last.entry.unwrap()
+            a.num(),
+            b.num(),
+            &a_last_entry.unwrap(),
+            &b_last_entry.unwrap()
         ))
     }
 }
@@ -241,7 +377,7 @@ fn check_lines_rhyme(a: &Line, b: &Line) -> Result<(), String> {
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with a reason why.
-fn check_stanza_has_num_lines(stanza: &Stanza, n: usize) -> Result<(), String> {
+fn check_stanza_has_num_lines(stanza: &StanzaView, n: usize) -> Result<(), String> {
     if stanza.num_lines() != n {
         return Err(format!(
             "Expected {} lines but the stanza has {}.\n",
@@ -261,7 +397,7 @@ fn check_stanza_has_num_lines(stanza: &Stanza, n: usize) -> Result<(), String> {
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with reason why.
-fn check_line_has_num_syllables(line: &Line, expected: i32) -> Result<(), String> {
+fn check_line_has_num_syllables(line: &LineView, expected: i32) -> Result<(), String> {
     let mut errors = String::new();
 
     let num_syllables = line.num_syllables();
@@ -270,14 +406,18 @@ fn check_line_has_num_syllables(line: &Line, expected: i32) -> Result<(), String
             errors.push_str(&format!(
                 "line {} has unknown words and {} syllables already, so it will exceed \
                     the limit of {}. \n",
-                line.num, num_syllables, expected
+                line.num(),
+                num_syllables,
+                expected
             ));
         }
         // Assume that the line is ok.
     } else if num_syllables != expected {
         errors.push_str(&format!(
             "line {} has {} syllables but should have {}. \n",
-            line.num, num_syllables, expected
+            line.num(),
+            num_syllables,
+            expected
         ));
     }
     if errors.is_empty() {
@@ -370,14 +510,17 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     let stanzas = get_stanzas_from_text(&raw_input, dict);
     for s in stanzas {
         println!("====== STANZA ======\n{}", s.summarize_to_text());
-        if s.num_lines() == 14 {
-            match is_shakespearean_sonnet(&s) {
-                Ok(_) => println!("This is a valid Shakespearean Sonnet!"),
-                Err(txt) => println!("This isn't a Shakespearean Sonnet because:\n{}\n", &txt),
+
+        for i in s.interpretations() {
+            if i.num_lines() == 14 {
+                match is_shakespearean_sonnet(&i) {
+                    Ok(_) => println!("This is a valid Shakespearean Sonnet!"),
+                    Err(txt) => println!("This isn't a Shakespearean Sonnet because:\n{}\n", &txt),
+                }
             }
-        }
-        if is_haiku(&s).is_ok() {
-            println!("What a great haiku!\n\n");
+            if is_haiku(&i).is_ok() {
+                println!("What a great haiku!\n\n");
+            }
         }
     }
 }
@@ -540,7 +683,7 @@ mod tests {
               Quacking constantly\n";
             let stanza = to_stanza(text, &dict);
             assert!(!stanza.has_unknown_words()); // Test invariant.
-            assert_eq!(is_haiku(&stanza), Ok(()));
+            assert_eq!(is_haiku(&unique_interp(&stanza)), Ok(()));
         }
 
         #[test]
@@ -557,16 +700,16 @@ mod tests {
             let all_too_long = "a a a a a a\na a a a a a a a\na a a a a a";
             let stanza = to_stanza(&line1_too_short, &dict);
             assert!(!stanza.has_unknown_words()); // Test invariant.
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
 
             let stanza = to_stanza(&line2_too_short, &dict);
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
 
             let stanza = to_stanza(&line3_too_short, &dict);
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
 
             let stanza = to_stanza(&all_too_long, &dict);
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
         }
 
         #[test]
@@ -579,10 +722,10 @@ mod tests {
             let four_lines = "a a a a a\na a a a a a a\na a a a a\na a a a a";
 
             let stanza = to_stanza(&two_lines, &dict);
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
 
             let stanza = to_stanza(&four_lines, &dict);
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
         }
 
         #[test]
@@ -595,7 +738,7 @@ mod tests {
                         wertgreen\n\
                         a a a a a";
             let stanza = to_stanza(&text, &dict);
-            assert!(is_haiku(&stanza).is_ok());
+            assert!(is_haiku(&unique_interp(&stanza)).is_ok());
         }
 
         #[test]
@@ -608,7 +751,7 @@ mod tests {
                         a a a a a a a\n\
                         a a a a a";
             let stanza = to_stanza(&text, &dict);
-            assert!(is_haiku(&stanza).is_err());
+            assert!(is_haiku(&unique_interp(&stanza)).is_err());
         }
     }
 
@@ -619,6 +762,12 @@ mod tests {
         let mut stanzas = get_stanzas_from_text(&text, &dict);
         assert_eq!(stanzas.len(), 1);
         stanzas.pop().unwrap()
+    }
+
+    /// This test helper extracts interpretations from `Stanza` and expects only one.
+    fn unique_interp<'a>(stanza: &'a Stanza) -> StanzaView<'a> {
+        let mut iter = stanza.interpretations();
+        return iter.next().unwrap();
     }
 
     mod is_shakespearean_sonnet {
@@ -632,13 +781,13 @@ mod tests {
 
             let line = "a a a a a a a a a a\n";
             let too_short = to_stanza(&line.repeat(13), &dict);
-            assert!(is_shakespearean_sonnet(&too_short).is_err());
+            assert!(is_shakespearean_sonnet(&unique_interp(&too_short)).is_err());
 
             let correct = to_stanza(&line.repeat(14), &dict);
-            assert!(is_shakespearean_sonnet(&correct).is_ok());
+            assert!(is_shakespearean_sonnet(&unique_interp(&correct)).is_ok());
 
             let too_long = to_stanza(&line.repeat(15), &dict);
-            assert!(is_shakespearean_sonnet(&too_long).is_err());
+            assert!(is_shakespearean_sonnet(&unique_interp(&too_long)).is_err());
         }
 
         #[test]
@@ -668,9 +817,9 @@ mod tests {
             );
 
             let too_short = to_stanza(&prose_short, &dict);
-            assert!(is_shakespearean_sonnet(&too_short).is_err());
+            assert!(is_shakespearean_sonnet(&unique_interp(&too_short)).is_err());
             let too_long = to_stanza(&prose_long, &dict);
-            assert!(is_shakespearean_sonnet(&too_long).is_err());
+            assert!(is_shakespearean_sonnet(&unique_interp(&too_long)).is_err());
         }
 
         #[test]
@@ -719,7 +868,7 @@ mod tests {
             {
                 // Original, correct version shoudld be ok.
                 let stanza = to_stanza(&poem, &poem_dict);
-                assert!(is_shakespearean_sonnet(&stanza).is_ok());
+                assert!(is_shakespearean_sonnet(&unique_interp(&stanza)).is_ok());
             }
 
             // For the last word in each line, replace it with another word of the same length
@@ -743,7 +892,7 @@ mod tests {
             for (old, new) in replacements {
                 let text = poem.replace(old, new);
                 let stanza = to_stanza(&text, &poem_dict);
-                assert!(is_shakespearean_sonnet(&stanza).is_err());
+                assert!(is_shakespearean_sonnet(&unique_interp(&stanza)).is_err());
             }
         }
     } // mod is_shakespearean_sonnet
