@@ -677,6 +677,18 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
 pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     let raw_input = std::fs::read_to_string(path).unwrap();
     let stanzas = get_stanzas_from_text(&raw_input, dict);
+    // Avoid silently dropping all of the input (e.g. if it's double-spaced), if possible.
+    if stanzas.is_empty() {
+        println!("{:-^1$}", " wait a minute... ", 78);
+        println!(
+            "Read {} bytes from {}, but didn't find any stanzas.",
+            raw_input.len(),
+            path
+        );
+        println!("The input should be single-spaced, with blank lines between stanzas.");
+        return;
+    }
+
     for s in stanzas {
         println!("====== STANZA ======\n{}", s.summarize_to_text());
 
