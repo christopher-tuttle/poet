@@ -195,6 +195,15 @@ impl<'a> std::fmt::Debug for StanzaView<'a> {
     }
 }
 
+impl<'a> std::fmt::Display for StanzaView<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for line in &self.lines {
+            write!(f, "{}\n", &line)?;
+        }
+        Ok(())
+    }
+}
+
 /// Presents a view of a `Line` in a `Stanza` where there is at most one `Entry` per word.
 #[derive(Clone)]
 pub struct LineView<'a> {
@@ -204,7 +213,56 @@ pub struct LineView<'a> {
 
 impl<'a> std::fmt::Debug for LineView<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self.indices)
+        write!(f, "{:?}\n", self.indices)
+    }
+}
+
+impl<'a> std::fmt::Display for LineView<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:02}. {}\n", self.line.num, &self.line.raw_text)?;
+        // Start with just blasting everything there, and then make it pretty / evenly spaced.
+        let num_tokens = self.indices.len();
+
+        let mut dict_keys: Vec<String> = Vec::with_capacity(num_tokens);
+        let mut phoneme_strs: Vec<String> = Vec::with_capacity(num_tokens);
+
+        // If a word is in the dictionary, then it must have phonemes.
+        // The phonemes will always be longer than the word, often significantly.
+        //
+        // Thus, the widths for known words are always computed from the phonemes.
+        // (And, until there is alignment with the raw strings, they are used in all cases.)
+        let mut widths: Vec<usize> = Vec::with_capacity(num_tokens);
+        for i in 0..num_tokens {
+            match self.get_entry(i) {
+                Some(e) => {
+                    dict_keys.push(e.dict_key());
+                    phoneme_strs.push(format!("{}", e.phonemes));
+                }
+                None => {
+                    dict_keys.push(String::from("?"));
+                    phoneme_strs.push(String::from("?"));
+                }
+            }
+            widths.push(phoneme_strs.last().unwrap().len());
+        }
+
+        // Start the line by shifting over by the line number prefix (assumed "NN. ").
+        write!(f, "  . ")?;
+        for i in 0..num_tokens {
+            // "Make the minimum field width the value of the '1'st argument (widths[i]), by
+            // left-justifying the string ('<'), and filling the rest with '.'".
+            //
+            // Note that using "1$" in the format specifier has weird effects on the positional
+            // arguments for the rest of the specifier, so it is best to put these all at the end.
+            write!(f, "{:.<1$}  ", dict_keys[i], widths[i])?;
+        }
+
+        // Again with the shift, and the previous EOL this time too.
+        write!(f, "\n  . ")?;
+        for i in 0..num_tokens {
+            write!(f, "{}  ", phoneme_strs[i])?;
+        }
+        write!(f, "\n")
     }
 }
 
@@ -698,7 +756,7 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
             iter.size_hint()
         );
         for i in iter {
-            println!("INTERPRETATION:\n{:?}\n", i);
+            println!("INTERPRETATION:\n{}\n", i);
 
             if i.num_lines() == 14 {
                 match is_shakespearean_sonnet(&i) {
