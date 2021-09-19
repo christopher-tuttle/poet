@@ -630,7 +630,7 @@ fn is_haiku(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(errors)` if not valid, with a vector of ClassifyErrors.
-fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+pub fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
     check_stanza_has_num_lines(stanza, 14)?;
 
     let mut errors = vec![];

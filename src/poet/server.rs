@@ -149,6 +149,21 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     for s in &stanzas {
         raw_style_result.push_str(&s.summarize_to_text());
         raw_style_result.push('\n');
+        for i in s.interpretations().take(1) { // XXX
+            raw_style_result.push_str(&format!("{}\n", &i));
+            match snippet::is_shakespearean_sonnet(&i) {
+                Ok(_) => {
+                    raw_style_result.push_str("This is a valid Shakespearean Sonnet!\n");
+                }
+                Err(v) => {
+                    raw_style_result.push_str("Errors and warnings:\n");
+                    for e in &v {
+                        raw_style_result.push_str(&format!("{}\n", e));
+                    }
+                }
+            }
+        }
+        raw_style_result.push_str("\n\n");
     }
     context.insert("raw_analysis", raw_style_result.as_str());
 
@@ -165,7 +180,8 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
                 };
                 if let Some(entry) = &t.entry {
                     word_info.css_class = "found";
-                    word_info.syllables = entry.syllables;
+                    // XXX WRONG -- DOESN't SUPPORT MULTIPLE ENTRIES
+                    word_info.syllables = entry[0].num_syllables();
                 }
                 line_annotations.push(word_info);
             }
