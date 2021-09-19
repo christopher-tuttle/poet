@@ -257,15 +257,126 @@ impl<'a> LineView<'a> {
             .count()
             > 0
     }
+
+    /// Provides a human-friendly string representation of this line's tokens.
+    ///
+    /// Known tokens are printed as `dict_key` and unknown ones are printed as None.
+    #[cfg(test)]
+    pub fn token_string(&self) -> String {
+        // This is ugly. Should probably write an iterator for the entries.
+        let mut result = String::new();
+        for i in 0..self.indices.len() {
+            if i > 0 {
+                result.push(' ');
+            }
+            match self.get_entry(i) {
+                Some(e) => result.push_str(&e.dict_key()),
+                None => result.push_str("None"),
+            }
+        }
+        return result;
+    }
+
+    // This is a helper for InterpretationsIter to advance by one spot. This is done
+    // recursively over self.indices.
+    //
+    // Example: This line has 4 terms. The first and forth have 2 variants. The second is not in
+    // the dictionary, and the third has only one variant:
+    //
+    //   term1 term2 term3 term4
+    //   v1,v2 None  v1    v1,v2
+    //
+    // Then on each call to advance(), self.indices will look like this:
+    //
+    // [0, 0, 0, 0]  // This is the initial condition, yielded by Iter::first_run.
+    // [0, 0, 0, 1], false  <-- the interpretation [v1, None, v1, v2]
+    // [1, 0, 0, 0], false  <-- note that term2 and term3 don't advance.
+    // [1, 0, 0, 1], false  <-- ...
+    // [0, 0, 0, 0], true   <-- note that the line resets to initial condition.
+    //
+    // The `true` result indicates the Line is done, and at the higher level the following
+    // line will be advance()d.
+    //
+    fn advance(&mut self, filter: bool) -> bool {
+        return self.advance_internal(filter, 0);
+    }
+
+    // See advance() and the InterpretationsIter comments.
+    fn advance_internal(&mut self, filter: bool, idx: usize) -> bool {
+        // Base case: for convenience just walk off the end of the vector and then always
+        // claim doneness.
+        if idx >= self.indices.len() {
+            return true;
+        }
+
+        // Try to advance a later place on the list than this one.
+        let reached_the_end = self.advance_internal(filter, idx + 1);
+        if !reached_the_end {
+            // One of the later indices was able to advance without rolling over.
+            return false;
+        }
+
+        // Try to advance the one at the current position.
+        if let Some(v) = self.line.tokens[idx].entry {
+            // There are a few interesting cases when the current token is pointing at the
+            // first Entry and it is time to increment:
+            //   - Commonly, there is only one Entry in this slot at all. Most words are
+            //     unique. In this case, just bump the advance up the stack.
+            //   - If it is not at the end of the line and all the alternatives have the
+            //     same number of syllables, the different Interpretations don't materially
+            //     affect the correctness of the Stanza for rhyming pattern or form. The
+            //     `filter` parameter, when true, means that these can be dropped, which
+            //     can prune the space considerably.
+            if self.indices[idx] == 0 {
+                if v.len() == 1 {
+                    // Case 1.
+                    return true;
+                }
+
+                // Case 2 is only appropriate for terms not at the end of lines.
+                if idx != self.indices.len() - 1 {
+                    let num_syllables = v[0].num_syllables();
+                    if filter && v[1..].iter().all(|e| e.num_syllables() == num_syllables) {
+                        return true;
+                    }
+                }
+            }
+
+            // If it is a vector then increment idx until it hits the right size.
+            self.indices[idx] += 1;
+            if self.indices[idx] == v.len() {
+                // Roll the index back to 0 -- like an odometer -- so it is ready to go
+                // again if the iteration as a whole isn't done.
+                self.indices[idx] = 0;
+                return true;
+            } else {
+                // Successfully advanced. Return false --> not done.
+                return false;
+            }
+        } else {
+            // The current token has only None.
+            return true;
+        }
+    }
 }
 
 /// Generates / iterates over all possible interpretations of a `Stanza`.
-///
-/// NOTE: Currently this will only produce one `StanzaView` because the dictionary does not return
-/// multiple variants per word.
 pub struct InterpretationsIter<'a> {
     view: StanzaView<'a>,
+    // true when `next` has not been called yet.
     first_run: bool,
+
+    /// When true, ignore any terms that aren't going to affect the form or rhyming pattern.
+    ///
+    /// In particular, if a word is (a) not at the end of a line, and (b) has several
+    /// variants with all the same number of syllables, then the iterator will only produce
+    /// Views with the first variant.
+    ///
+    /// Many common words have multiple variants, so this filtering has a huge impact.
+    /// On a test sonnet, it reduced the number of StanzaViews from ~508 million to 72.
+    ///
+    /// `true` by default.
+    filter: bool,
 }
 
 impl<'a> InterpretationsIter<'a> {
@@ -276,6 +387,7 @@ impl<'a> InterpretationsIter<'a> {
         Self {
             view: StanzaView::new(s),
             first_run: true,
+            filter: true,
         }
     }
 }
@@ -288,7 +400,59 @@ impl<'a> Iterator for InterpretationsIter<'a> {
             self.first_run = false;
             return Some(self.view.clone());
         }
+
+        // This produces the Cartesean Product of all the different variants for each term across
+        // the whole Stanza, subject to the filtering note above.
+        //
+        // Each LineView has a vector of integers pointing which variant to use in the
+        // corresponding Line's Token.entry list. The advance() call bumps that vector by one
+        // place. If it is successful (i.e. the View now points to something new), then the View is
+        // returned. Otherwise, `advance` will return true -- indicating that it is already
+        // pointing at the last variation.
+        //
+        // A good analogy to this is an odometer of a car, where is_true means the line just
+        // rolled from 999 to 000 (and so the next digit/line needs to be advanced).
+        for line in &mut self.view.lines {
+            let is_done = line.advance(self.filter);
+            if !is_done {
+                return Some(self.view.clone());
+            }
+        }
+        // Every line returned is_done when asked to advance, so everything has been produced.
         return None;
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let mut count: usize = 1;
+        let mut count_unfiltered: usize = 1;
+        for line_view in &self.view.lines {
+            for (i, token) in line_view.line.tokens.iter().enumerate() {
+                if let Some(v) = &token.entry {
+                    if v.len() == 1 {
+                        continue;
+                    }
+                    if i == line_view.line.tokens.len() - 1 {
+                        // Last token on the list, so filtering is not relevant.
+                        count *= v.len();
+                        count_unfiltered *= v.len();
+                        continue;
+                    }
+
+                    let num_syllables = v[0].num_syllables();
+                    if v[1..].iter().all(|e| e.num_syllables() == num_syllables) {
+                        // This would be skipped when filter = true.
+                    } else {
+                        count *= v.len();
+                    }
+                    count_unfiltered *= v.len();
+                }
+            }
+        }
+        if self.filter {
+            return (0, Some(count));
+        } else {
+            return (0, Some(count_unfiltered));
+        }
     }
 }
 
@@ -512,7 +676,14 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     for s in stanzas {
         println!("====== STANZA ======\n{}", s.summarize_to_text());
 
-        for i in s.interpretations() {
+        let iter = s.interpretations();
+        println!(
+            "ESTIMATED NUMBER OF INTERPRETATIONS: {:?}\n",
+            iter.size_hint()
+        );
+        for i in iter {
+            println!("INTERPRETATION:\n{:?}\n", i);
+
             if i.num_lines() == 14 {
                 match is_shakespearean_sonnet(&i) {
                     Ok(_) => println!("This is a valid Shakespearean Sonnet!"),
@@ -768,7 +939,105 @@ mod tests {
     /// This test helper extracts interpretations from `Stanza` and expects only one.
     fn unique_interp<'a>(stanza: &'a Stanza) -> StanzaView<'a> {
         let mut iter = stanza.interpretations();
+        assert_eq!(iter.size_hint().1, Some(1));
         return iter.next().unwrap();
+    }
+
+    mod interpretation_iter {
+        use super::*;
+
+        #[test]
+        fn test_single_interpretation() {
+            let poem = "a b c \n d \n e f";
+            // This dictionary has either zero or one entries per word in the poem.
+            // The phonemes don't matter to the outcome.
+            let poem_dict_entries = vec![
+                "a AH0 D",
+                "b AH0 P",
+                "c IH1 V",
+                "d G IH1 V",
+                "e EH1 L",
+                // f missing.
+            ];
+            let mut poem_dict = Dictionary::new();
+            poem_dict.insert_all(&poem_dict_entries);
+            let stanza = to_stanza(&poem, &poem_dict);
+
+            let mut iter = stanza.interpretations();
+            assert_eq!(iter.size_hint().1, Some(1));
+
+            let view = iter.next().unwrap();
+            assert_eq!(view.lines[0].token_string(), "a b c");
+            assert_eq!(view.lines[1].token_string(), "d");
+            assert_eq!(view.lines[2].token_string(), "e None");
+            assert!(iter.next().is_none());
+        }
+
+        #[test]
+        fn test_full_generation_with_several_variants() {
+            let poem = "a b c \n d \n e f";
+            // Same poem, but this time many of the words have multiple variants.
+            //
+            // In order to avoid any filtering/pruning, the variants for each word
+            // can't all have the same number of syllables.
+            let poem_dict_entries = vec![
+                "a AH0 D",
+                "b AH0 P",        // 1 syllable.
+                "b(2) AY1 AH0 X", // 2 syllables.
+                "c IH1 V",
+                "c(2) AY1 IH1 Y",
+                "c(3) AE1 IH1 Z",
+                "d G IH1 V",
+                "e EH1 L",
+                "e(2) AY1 EH1 X",
+                // f missing.
+            ];
+            let mut poem_dict = Dictionary::new();
+            poem_dict.insert_all(&poem_dict_entries);
+            let stanza = to_stanza(&poem, &poem_dict);
+
+            let all: Vec<StanzaView> = stanza.interpretations().collect();
+            assert_eq!(all.len(), 12);
+
+            // Spot check one of the outputs, #9.
+            let view = &all[9];
+            assert_eq!(view.lines[0].token_string(), "a b(2) c");
+            assert_eq!(view.lines[1].token_string(), "d");
+            assert_eq!(view.lines[2].token_string(), "e(2) None");
+        }
+
+        #[test]
+        fn test_filtering() {
+            let poem = "a b c \n d \n e f";
+            // Same poem, but this time many of the words have multiple variants.
+            //
+            // This time the variants have the same number of syllables, so only
+            // the one at the end of a line (c) should be produced.
+            let poem_dict_entries = vec![
+                "a AH0 D",
+                "b AH0 P",
+                "b(2) AH0 X",
+                "c IH1 V",
+                "c(2) IH1 Y",
+                "c(3) IH1 Z",
+                "d G IH1 V",
+                "e EH1 L",
+                "e(2) EH1 X",
+                // f missing.
+            ];
+            let mut poem_dict = Dictionary::new();
+            poem_dict.insert_all(&poem_dict_entries);
+            let stanza = to_stanza(&poem, &poem_dict);
+
+            let all: Vec<StanzaView> = stanza.interpretations().collect();
+            assert_eq!(all.len(), 3);
+
+            assert_eq!(all[0].lines[0].token_string(), "a b c");
+            assert_eq!(all[1].lines[0].token_string(), "a b c(2)");
+            assert_eq!(all[2].lines[0].token_string(), "a b c(3)");
+
+            assert_eq!(all[2].lines[2].token_string(), "e None");
+        }
     }
 
     mod is_shakespearean_sonnet {
