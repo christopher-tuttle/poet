@@ -715,7 +715,11 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
             }
             continue;
         }
-        stanza.lines.push(Line::new_from_line(line, line_num, dict));
+        stanza.lines.push(Line::new_from_line(
+            line,
+            line_num + 1, /* 1-indexed */
+            dict,
+        ));
     }
     // Finalize last stanza.
     if stanza.num_lines() >= 2 {
