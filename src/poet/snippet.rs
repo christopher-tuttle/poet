@@ -116,7 +116,11 @@ impl<'a> Stanza<'a> {
                         if i == 0 {
                             out.push_str(&format!("\t{}: {}\n", &token.text, &entry));
                         } else {
-                            out.push_str(&format!("\t  +-- {}\n", &entry));
+                            out.push_str(&format!(
+                                "\t{}: {}\n",
+                                &" ".repeat(token.text.len()),
+                                &entry
+                            ));
                         }
                     }
                 } else {
