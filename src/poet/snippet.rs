@@ -536,7 +536,7 @@ impl<'a> Iterator for InterpretationsIter<'a> {
 }
 
 /// Stores errors and warnings for the stanza classifiers, with machine-readable line information.
-#[derive(Debug, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub enum ClassifyError {
     /// An error covering whole stanza, e.g. that it has the wrong number of lines.
     StanzaError(String),
@@ -605,6 +605,10 @@ fn is_haiku(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
     check_stanza_has_num_lines(stanza, 3)?;
 
     let mut errors = vec![];
+    // Known words are important for syllable accuracy.
+    if let Err(mut v) = check_stanza_for_unknown_words(&stanza) {
+        errors.append(&mut v);
+    }
     for (i, expected_syllables) in [5, 7, 5].iter().enumerate() {
         if let Err(mut v) = check_line_has_num_syllables(&stanza.lines[i], *expected_syllables) {
             errors.append(&mut v);
@@ -630,6 +634,10 @@ fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>
     check_stanza_has_num_lines(stanza, 14)?;
 
     let mut errors = vec![];
+    // Known words are important for syllable and rhyming accuracy.
+    if let Err(mut v) = check_stanza_for_unknown_words(&stanza) {
+        errors.append(&mut v);
+    }
     for line in &stanza.lines {
         if let Err(mut v) = check_line_has_num_syllables(&line, 10) {
             errors.append(&mut v);
@@ -689,6 +697,19 @@ fn check_stanza_has_num_lines(stanza: &StanzaView, n: usize) -> Result<(), Vec<C
             n,
             stanza.num_lines()
         ))]);
+    }
+    Ok(())
+}
+
+/// Checks for any unknown words in the Stanza.
+///
+/// Returns:
+/// - `Ok(())` if all words are known.
+/// - `Err(info)` if some are not known.
+fn check_stanza_for_unknown_words(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+    if stanza.stanza.has_unknown_words() {
+        return Err(vec![ClassifyError::StanzaError(
+                "Warning: The text has some unknown words. Analysis may suffer.".to_string())]);
     }
     Ok(())
 }
@@ -845,24 +866,49 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
             "ESTIMATED NUMBER OF INTERPRETATIONS: {:?}\n",
             iter.size_hint()
         );
+
+        let mut best: Option<StanzaView> = None;
+        let mut best_errors: Vec<ClassifyError> = vec![];
         for i in iter {
-            println!("INTERPRETATION:\n{}\n", i);
+            // println!("INTERPRETATION:\n{}\n", i);
 
             if i.num_lines() >= 10 && i.num_lines() <= 16 {
                 match is_shakespearean_sonnet(&i) {
-                    Ok(_) => println!("This is a valid Shakespearean Sonnet!"),
+                    Ok(_) => {
+                        println!("This is a valid Shakespearean Sonnet!");
+                        best = Some(i);
+                        best_errors = vec![];
+                    }
                     Err(mut v) => {
                         v.sort();
+                        /*
                         println!("This isn't a Shakespearean Sonnet because:\n");
-                        for e in v {
+                        for e in &v {
                             println!("{}", e);
+                        }
+                        */
+                        println!("... with {} errors", v.len());
+                        if best.is_none() || v.len() < best_errors.len() {
+                            best = Some(i);
+                            best_errors = v;
                         }
                     }
                 }
             }
+            /* XXX
             if is_haiku(&i).is_ok() {
                 println!("What a great haiku!\n\n");
             }
+            */
+        }
+        println!("Best Interpretation:\n{}\n", &best.unwrap());
+        if !best_errors.is_empty() {
+            println!("Errors and warnings:\n");
+            for e in &best_errors {
+                println!("{}", e);
+            }
+        } else {
+            println!("It's valid!");
         }
     }
 }
