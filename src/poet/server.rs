@@ -12,7 +12,7 @@ use crate::poet::*;
 
 /// A container for data owned by web server that's available for all requests.
 struct ServerState {
-    dict: Mutex<dictionary::Dictionary>,
+    dict: Mutex<dictionary::DictionaryImpl>,
 }
 
 /// A Context for populating the lookup template.
@@ -45,6 +45,7 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 
     let dict = state.dict.lock().unwrap();
 
+    use dictionary::Dictionary;
     if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
@@ -76,6 +77,7 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 fn api_lookup(state: &State<ServerState>, term: &str) -> String {
     let dict = state.dict.lock().unwrap();
 
+    use dictionary::Dictionary;
     if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
@@ -126,7 +128,9 @@ struct AnalyzeRequest<'a> {
 #[post("/analyze", data = "<req>")]
 fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     let mut result = String::with_capacity(8192); // Arbitrary.
-    let stanzas = snippet::get_stanzas_from_text(&req.text, &state.dict);
+
+    let dict = state.dict.lock().unwrap();
+    let stanzas = snippet::get_stanzas_from_text(&req.text, &*dict);
     for s in stanzas {
         result.push_str(&s.summarize_to_text());
         result.push('\n');
@@ -149,7 +153,7 @@ fn index() -> Template {
 /// Args:
 ///
 /// * `dictionary` - An already-initialized dictionary to use when handling all requests.
-pub async fn run(dictionary: dictionary::Dictionary) {
+pub async fn run(dictionary: dictionary::DictionaryImpl) {
     println!("*****************************************************************");
     println!("*                                                               *");
     println!("*  Launching Web Server.                                        *");

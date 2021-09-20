@@ -7,7 +7,7 @@ mod poet;
 
 use crate::poet::*;
 
-fn handle_term_query(query: &str, dict: &dictionary::Dictionary) {
+fn handle_term_query(query: &str, dict: &dyn dictionary::Dictionary) {
     if let Some(entry) = dict.lookup(query) {
         println!("Found {:?}", entry);
         for word in dict.similar(query).words {
@@ -61,7 +61,7 @@ async fn main() {
 
     let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
 
-    let dict = poet::dictionary::Dictionary::new_from_cmudict_file(cmudict_path)
+    let dict = poet::dictionary::DictionaryImpl::new_from_cmudict_file(cmudict_path)
         .expect("Failed to read cmudict file!");
 
     if let Some(q) = matches.value_of("query") {
