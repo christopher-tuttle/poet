@@ -61,17 +61,16 @@ async fn main() {
 
     let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
 
-    /*
-    let dict = poet::dictionary::DictionaryImpl::new_from_cmudict_file(cmudict_path)
-        .expect("Failed to read cmudict file!");
-    */
     let mut shelf = poet::dictionary::Shelf::new();
     shelf
         .init_cmudict(cmudict_path)
         .expect("Failed to read cmudict file!");
-    shelf
-        .init_userdict("./userdict.dict")
-        .expect("Failed to read userdict file!");
+    if let Err(e) = shelf.init_userdict("./userdict.dict") {
+        println!(
+            "Failed to read userdict file. Skipping and continuing. Error={}",
+            e
+        );
+    }
 
     if let Some(q) = matches.value_of("query") {
         // TODO: Exit with a failure status value if lookup failed.
