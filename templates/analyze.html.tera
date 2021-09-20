@@ -2,9 +2,23 @@
 <html>
 <head>
 	<title>poet</title>
-	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+	<link rel="stylesheet" type="text/css" media="screen" href="static/analyze.css">
 </head>
 <body>
+	<div id="container">
+		<div id="boxfriend">
+			<div id="box">
+				<form action"/analyze" method="post">
+					<textarea name="text", rows=30 cols=100></textarea>
+					<input type="submit" value="Go">
+				</form>
+			</div>
+		</div>
+		<div id="prose">{{ prose_html | safe }}</div>
+	</div>
+	
+	<hr>
+
 	<p><b>Analysis of text:</b></p>
 	<pre> {{ raw_analysis }} </pre>
 	<hr>

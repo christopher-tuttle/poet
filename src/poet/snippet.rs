@@ -178,8 +178,8 @@ impl<'a> Stanza<'a> {
 /// to see if any of them are correct (or match a pattern, etc.).
 #[derive(Clone)]
 pub struct StanzaView<'a> {
-    stanza: &'a Stanza<'a>,
-    lines: Vec<LineView<'a>>,
+    pub stanza: &'a Stanza<'a>, // XXX made these public for html template trait
+    pub lines: Vec<LineView<'a>>, // XXX made these public for html template trait
 }
 
 impl<'a> StanzaView<'a> {
@@ -219,8 +219,9 @@ impl<'a> std::fmt::Display for StanzaView<'a> {
 /// Presents a view of a `Line` in a `Stanza` where there is at most one `Entry` per word.
 #[derive(Clone)]
 pub struct LineView<'a> {
-    line: &'a Line<'a>,
-    indices: Vec<usize>, // Indices into line.tokens[i] to return for get_entry.
+    // XXX made these public for html template trait
+    pub line: &'a Line<'a>,
+    pub indices: Vec<usize>, // Indices into line.tokens[i] to return for get_entry.
 }
 
 impl<'a> std::fmt::Debug for LineView<'a> {
@@ -301,6 +302,11 @@ impl<'a> LineView<'a> {
     /// This is a convenience function to help with rhyming.
     pub fn last_entry(&self) -> Option<&Entry> {
         self.get_entry(self.indices.len() - 1)
+    }
+
+    /// Returns the text for the `idx`-th token on the line.
+    pub fn get_text(&self, idx: usize) -> &str {
+        &self.line.tokens[idx].text
     }
 
     /// Returns the number of syllables in the line.
@@ -717,7 +723,8 @@ fn check_stanza_has_num_lines(stanza: &StanzaView, n: usize) -> Result<(), Vec<C
 fn check_stanza_for_unknown_words(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
     if stanza.stanza.has_unknown_words() {
         return Err(vec![ClassifyError::StanzaError(
-                "Warning: The text has some unknown words. Analysis may suffer.".to_string())]);
+            "Warning: The text has some unknown words. Analysis may suffer.".to_string(),
+        )]);
     }
     Ok(())
 }
