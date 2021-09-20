@@ -12,7 +12,7 @@ use crate::poet::*;
 
 /// A container for data owned by web server that's available for all requests.
 struct ServerState {
-    dict: Mutex<dictionary::DictionaryImpl>, // XXX
+    shelf: Mutex<dictionary::Shelf>,
 }
 
 /// A Context for populating the lookup template.
@@ -43,9 +43,9 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         word_groups: BTreeMap::new(),
     };
 
-    let dict = state.dict.lock().unwrap();
+    let shelf = state.shelf.lock().unwrap();
+    let dict = shelf.over_all();
 
-    use dictionary::Dictionary;
     if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
@@ -75,9 +75,10 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 /// be inserted into the page.
 #[get("/api/lookup?<term>")]
 fn api_lookup(state: &State<ServerState>, term: &str) -> String {
-    let dict = state.dict.lock().unwrap();
+    let shelf = state.shelf.lock().unwrap();
 
-    use dictionary::Dictionary;
+    let dict = shelf.over_all();
+
     if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
@@ -117,7 +118,9 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
 /// TEST ENDPOINT
 #[get("/mutate")]
 fn mutate(state: &State<ServerState>) -> String {
-    let mut dict = state.dict.lock().unwrap();
+    let mut shelf = state.shelf.lock().unwrap();
+
+    let dict = shelf.mut_dict();
     dict.insert_raw("zyztest AA1 R D V AA2 R K");
     return format!("<b>it worked!</b>");
 }
@@ -154,8 +157,10 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     // 3. A rust-generated, colored version, which needs to happen because I'm on a deadline.
     //
     // TODO: Refactor duplicated code below into something a lot better.
-    let dict = state.dict.lock().unwrap();
-    let stanzas = snippet::get_stanzas_from_text(&req.text, &*dict);
+    let shelf = state.shelf.lock().unwrap();
+
+    let dict = shelf.over_all();
+    let stanzas = snippet::get_stanzas_from_text(&req.text, dict);
 
     // *** HACK ALERT *** //
     //
@@ -329,8 +334,8 @@ fn index() -> Template {
 ///
 /// Args:
 ///
-/// * `dictionary` - An already-initialized dictionary to use when handling all requests.
-pub async fn run(dictionary: dictionary::DictionaryImpl /*xxx*/) {
+/// * `shelf` - An already-initialized collection of dictionaries.
+pub async fn run(shelf: dictionary::Shelf) {
     println!("*****************************************************************");
     println!("*                                                               *");
     println!("*  Launching Web Server.                                        *");
@@ -341,7 +346,7 @@ pub async fn run(dictionary: dictionary::DictionaryImpl /*xxx*/) {
 
     let result = rocket::build()
         .manage(ServerState {
-            dict: Mutex::new(dictionary),
+            shelf: Mutex::new(shelf),
         })
         .attach(Template::fairing())
         .mount("/", routes![index, lookup, analyze, api_lookup, mutate])

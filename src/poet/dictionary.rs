@@ -252,6 +252,43 @@ impl fmt::Display for Entry {
     }
 }
 
+/// A place where Dictionaries are kept.
+pub struct Shelf {
+    dictionaries: Vec<DictionaryImpl>,
+}
+
+impl Shelf {
+    pub fn new() -> Shelf {
+        Shelf {
+            dictionaries: vec![],
+        }
+    }
+
+    pub fn init_cmudict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        let dict = DictionaryImpl::new_from_cmudict_file(path)?;
+        self.dictionaries.push(dict);
+        Ok(())
+    }
+
+    pub fn init_userdict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        let dict = DictionaryImpl::new_from_cmudict_file(path)?;
+        self.dictionaries.push(dict);
+        Ok(())
+    }
+
+    pub fn cmudict(&self) -> &dyn Dictionary {
+        &self.dictionaries[0]
+    }
+
+    pub fn over_all(&self) -> &dyn Dictionary {
+        return self.cmudict();
+    }
+
+    pub fn mut_dict(&mut self) -> &mut DictionaryImpl {
+        &mut self.dictionaries[0]
+    }
+}
+
 /// A container for a collection of entries.
 ///
 /// Either construct one and populate it with individual entries, or initialize one from
