@@ -260,6 +260,7 @@ pub struct Shelf {
 impl Shelf {
     pub fn new() -> Shelf {
         Shelf {
+            // XXX: Change to base dicts, user dict, and remote?
             dictionaries: vec![],
         }
     }
@@ -281,11 +282,48 @@ impl Shelf {
     }
 
     pub fn over_all(&self) -> &dyn Dictionary {
-        return self.cmudict();
+        return self;
     }
 
     pub fn mut_dict(&mut self) -> &mut DictionaryImpl {
         &mut self.dictionaries[0]
+    }
+}
+
+impl Dictionary for Shelf {
+    fn lookup(&self, term: &str) -> Option<&Vec<Entry>> {
+        // XXX THIS RETURN TYPE DOESN'T WORK WELL.
+        for d in &self.dictionaries {
+            let result = d.lookup(term);
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry> {
+        // XXX THIS RETURN TYPE DOESN'T WORK WELL.
+        for d in &self.dictionaries {
+            let result = d.lookup_variant(term, variant);
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    fn similar(&self, query: &str) -> SimilarResult {
+        // XXX: BUG: The various dictionaries can't find words that rhyme accross
+        // each other. Need to split up the function to have a similarity by phonemes
+        // lookup.
+        let mut out = SimilarResult { words: vec![] };
+        for d in &self.dictionaries {
+            let mut result = d.similar(query);
+            out.words.append(&mut result.words);
+        }
+        out.words.sort();
+        return out;
     }
 }
 

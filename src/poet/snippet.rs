@@ -1175,7 +1175,7 @@ mod tests {
     ///
     /// It requires there is exactly one in the input.
     fn to_stanza<'a>(text: &str, dict: &'a dyn Dictionary) -> Stanza<'a> {
-        let mut stanzas = get_stanzas_from_text(&text, &dict);
+        let mut stanzas = get_stanzas_from_text(&text, dict);
         assert_eq!(stanzas.len(), 1);
         stanzas.pop().unwrap()
     }
