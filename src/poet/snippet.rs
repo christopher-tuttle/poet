@@ -54,7 +54,7 @@ impl<'a> Line<'a> {
         raw: &str,
         line_num: usize,
         index: usize,
-        dict: &'b Dictionary,
+        dict: &'b dyn Dictionary,
     ) -> Line<'b> {
         let mut result = Line {
             raw_text: raw.to_string(),
@@ -799,7 +799,7 @@ fn check_line_has_num_syllables(line: &LineView, expected: i32) -> Result<(), Ve
 /// Arguments:
 /// * `input` - some raw input, like the contents of a file or a field from a form
 /// * `dict` - the Dictionary to use for word lookups
-pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanza<'a>> {
+pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a dyn Dictionary) -> Vec<Stanza<'a>> {
     let mut output = vec![];
     let mut stanza = Stanza::new();
 
@@ -858,7 +858,7 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
 /// * `path` - The text file to analyze.
 /// * `dict` - The dictionary to use.
 ///
-pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
+pub fn analyze_one_file_to_terminal(path: &str, dict: &dyn Dictionary) {
     let raw_input = std::fs::read_to_string(path).unwrap();
     let stanzas = get_stanzas_from_text(&raw_input, dict);
     // Avoid silently dropping all of the input (e.g. if it's double-spaced), if possible.
@@ -1027,7 +1027,7 @@ mod tests {
 
     #[test]
     fn test_get_stanzas_from_text_selects_correct_text_blocks() {
-        let dict = Dictionary::new(); // Empty is ok, not testing lookups here.
+        let dict = DictionaryImpl::new(); // Empty is ok, not testing lookups here.
         let input = "\
              # Some comment to be ignored.\n\
              A duck walked the streets\n\
@@ -1090,7 +1090,7 @@ mod tests {
                 "the(3) DH IY0",
                 "walked W AO1 K T",
             ];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             let text = "\
@@ -1105,7 +1105,7 @@ mod tests {
         #[test]
         fn test_checks_exact_syllable_counts_with_known_words() {
             let test_dictionary = vec!["a AH0"];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             // If all the words are known and the number of syllables are not correct,
@@ -1131,7 +1131,7 @@ mod tests {
         #[test]
         fn test_requires_exactly_3_lines() {
             let test_dictionary = vec!["a AH0"];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             let two_lines = "a a a a a\na a a a a a a";
@@ -1147,7 +1147,7 @@ mod tests {
         #[test]
         fn test_is_conservative_with_unknown_words() {
             let test_dictionary = vec!["a AH0"];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             let text = "a a a a someword\n\
@@ -1160,7 +1160,7 @@ mod tests {
         #[test]
         fn test_fails_with_unknown_words_when_clearly_too_long() {
             let test_dictionary = vec!["a AH0"];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             let text = "a a a a a toolong\n\
@@ -1174,7 +1174,7 @@ mod tests {
     /// This test helper parses `text` to extract exactly one `Stanza`.
     ///
     /// It requires there is exactly one in the input.
-    fn to_stanza<'a>(text: &str, dict: &'a Dictionary) -> Stanza<'a> {
+    fn to_stanza<'a>(text: &str, dict: &'a dyn Dictionary) -> Stanza<'a> {
         let mut stanzas = get_stanzas_from_text(&text, &dict);
         assert_eq!(stanzas.len(), 1);
         stanzas.pop().unwrap()
@@ -1203,7 +1203,7 @@ mod tests {
                 "e EH1 L",
                 // f missing.
             ];
-            let mut poem_dict = Dictionary::new();
+            let mut poem_dict = DictionaryImpl::new();
             poem_dict.insert_all(&poem_dict_entries);
             let stanza = to_stanza(&poem, &poem_dict);
 
@@ -1236,7 +1236,7 @@ mod tests {
                 "e(2) AY1 EH1 X",
                 // f missing.
             ];
-            let mut poem_dict = Dictionary::new();
+            let mut poem_dict = DictionaryImpl::new();
             poem_dict.insert_all(&poem_dict_entries);
             let stanza = to_stanza(&poem, &poem_dict);
 
@@ -1269,7 +1269,7 @@ mod tests {
                 "e(2) EH1 X",
                 // f missing.
             ];
-            let mut poem_dict = Dictionary::new();
+            let mut poem_dict = DictionaryImpl::new();
             poem_dict.insert_all(&poem_dict_entries);
             let stanza = to_stanza(&poem, &poem_dict);
 
@@ -1290,7 +1290,7 @@ mod tests {
         #[test]
         fn test_requires_14_lines() {
             let test_dictionary = vec!["a AH0"];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             let line = "a a a a a a a a a a\n";
@@ -1307,7 +1307,7 @@ mod tests {
         #[test]
         fn test_lines_must_have_10_syllables() {
             let test_dictionary = vec!["a AH0"];
-            let mut dict = Dictionary::new();
+            let mut dict = DictionaryImpl::new();
             dict.insert_all(&test_dictionary);
 
             let full_line = "a a a a a a a a a a\n";
@@ -1360,7 +1360,7 @@ mod tests {
                 "zebra Z IY1 B R AH0", // 2 syllables.
                 "electroplating IH2 L EH1 K T R AH0 P L EY2 T IH0 NG", // 5 syllables.
             ];
-            let mut poem_dict = Dictionary::new();
+            let mut poem_dict = DictionaryImpl::new();
             poem_dict.insert_all(&poem_dict_entries);
 
             let poem = "\

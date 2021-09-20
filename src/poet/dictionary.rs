@@ -20,7 +20,7 @@
 //!
 //! In this module, the main object is Dictionary, which provides lookups for individual words, and
 //! also the ability to search for words that rhyme with a given word, by comparing the suffixes of
-//! the pronciations.
+//! the pronciations. FIXME
 //!
 //! Related references:
 //!
@@ -257,7 +257,7 @@ impl fmt::Display for Entry {
 /// Either construct one and populate it with individual entries, or initialize one from
 /// a text file in `cmudict.dict` format.
 #[derive(Debug)]
-pub struct Dictionary {
+pub struct DictionaryImpl {
     entries: std::collections::HashMap<String, Vec<Entry>>,
 
     // This stores Entry::similarity_key()s to (term + variant). MUST REMAIN SORTED.
@@ -319,6 +319,14 @@ impl PartialEq for SimilarWord {
     }
 }
 
+pub trait Dictionary {
+    fn lookup(&self, term: &str) -> Option<&Vec<Entry>>;
+
+    fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry>;
+
+    fn similar(&self, query: &str) -> SimilarResult;
+}
+
 // TODO: Replace this wasteful and crude similarity algorithm.
 //
 // The current algorithm works by:
@@ -326,18 +334,18 @@ impl PartialEq for SimilarWord {
 //   - Return any terms that share the very last syllable sound.
 //
 // TODO: Prioritize terms that are more similar (share more phonemes at the tail).
-impl Dictionary {
+impl DictionaryImpl {
     /// Creates a new empty Dictionary.
-    pub fn new() -> Dictionary {
-        Dictionary {
+    pub fn new() -> DictionaryImpl {
+        DictionaryImpl {
             entries: std::collections::HashMap::new(),
             reverse_list: vec![],
         }
     }
 
     /// Creates a new dictionary, populated from the given text file.
-    pub fn new_from_cmudict_file(path: &str) -> Result<Dictionary, Box<dyn Error>> {
-        let mut dict = Dictionary::new();
+    pub fn new_from_cmudict_file(path: &str) -> Result<DictionaryImpl, Box<dyn Error>> {
+        let mut dict = DictionaryImpl::new();
 
         use std::io::{BufRead, BufReader};
         let f = std::fs::File::open(path)?;
@@ -384,13 +392,21 @@ impl Dictionary {
         }
     }
 
+    /// Returns the number of entries in the dictionary.
+    #[cfg(test)] // TODO: Remove?
+    pub fn len(&self) -> usize {
+        return self.entries.len();
+    }
+}
+
+impl Dictionary for DictionaryImpl {
     /// Returns the all of the Entries for the given term, or None.
-    pub fn lookup(&self, term: &str) -> Option<&Vec<Entry>> {
+    fn lookup(&self, term: &str) -> Option<&Vec<Entry>> {
         return self.entries.get(term);
     }
 
     /// Looks up the given term and exact variant.
-    pub fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry> {
+    fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry> {
         if let Some(v) = self.entries.get(term) {
             for entry in v {
                 if entry.variant == variant {
@@ -401,17 +417,11 @@ impl Dictionary {
         return None;
     }
 
-    /// Returns the number of entries in the dictionary.
-    #[cfg(test)] // TODO: Remove?
-    pub fn len(&self) -> usize {
-        return self.entries.len();
-    }
-
     /// Returns terms that share the last syllable with the given term.
     ///
     /// TODO: Replace the return value with something that doesn't have so many copies.
     /// TODO: Make the filtering more discerning, rather than boolean on the last syllable.
-    pub fn similar(&self, query: &str) -> SimilarResult {
+    fn similar(&self, query: &str) -> SimilarResult {
         let mut result = SimilarResult { words: vec![] };
 
         let query_variants = self.lookup(query);
@@ -519,7 +529,7 @@ mod tests {
 
     #[test]
     fn test_dictionary_insert() {
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert(Entry::new("a AH0"));
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
@@ -528,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_dictionary_insert_raw() {
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_raw("a H0");
         dict.insert_raw("a.m. EY2 EH1 M");
         assert_eq!(dict.len(), 2);
@@ -541,14 +551,14 @@ mod tests {
             "aardvark AA1 R D V AA2 R K",
             "aardvarks AA1 R D V AA2 R K S",
         ];
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_all(&values);
         assert_eq!(dict.len(), 3);
     }
 
     #[test]
     fn test_dictionary_lookup_by_term() {
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert(Entry::new("a AH0"));
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
@@ -561,7 +571,7 @@ mod tests {
     #[test]
     fn test_dictionary_lookup_multi() {
         let values = vec!["our AW1 ER0", "our(2) AW1 R", "our(3) AA1 R"];
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_all(&values);
         let entries = dict.lookup("our").unwrap(); // Or fail.
         assert_eq!(entries.len(), 3);
@@ -580,7 +590,7 @@ mod tests {
     #[test]
     fn test_dictionary_lookup_variant() {
         let values = vec!["our AW1 ER0", "our(2) AW1 R", "our(3) AA1 R"];
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_all(&values);
         assert_eq!(dict.lookup_variant("our", 2).unwrap().dict_key(), "our(2)");
         assert_eq!(dict.lookup_variant("our", 1).unwrap().dict_key(), "our");
@@ -590,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_dictionary_stats() {
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert(Entry::new("a AH0"));
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
@@ -629,7 +639,7 @@ mod tests {
     }
 
     // This helper calls `dict.similar(query)` and checks that the returned words are `expected`.
-    fn assert_similar_terms_are(dict: &Dictionary, query: &str, expected: &Vec<&str>) {
+    fn assert_similar_terms_are(dict: &DictionaryImpl, query: &str, expected: &Vec<&str>) {
         let result = dict.similar(query);
         let result_words: Vec<String> = result
             .words
@@ -666,7 +676,7 @@ mod tests {
             "mangoes M AE1 NG G OW0 Z",
             "mangold M AE1 N G OW2 L D",
         ];
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_all(&values);
 
         assert_similar_terms_are(&dict, "bayous", &vec!["fondues", "virtues"]);
@@ -687,7 +697,7 @@ mod tests {
             "red R EH1 D",
             "redd R EH1 D",
         ];
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_all(&values);
         assert_similar_terms_are(&dict, "red", &vec!["read", "reade", "redd"]);
     }
@@ -704,7 +714,7 @@ mod tests {
             "sour S AW1 ER0",
             "sour(2) S AW1 R",
         ];
-        let mut dict = Dictionary::new();
+        let mut dict = DictionaryImpl::new();
         dict.insert_all(&values);
 
         // Case: A word with a single variant should rhyme with variants of other words.
@@ -719,7 +729,7 @@ mod tests {
     #[test]
     #[ignore] // It's slow.
     fn test_can_read_entire_cmudict() {
-        let _dict = Dictionary::new_from_cmudict_file("./cmudict.dict").unwrap();
+        let _dict = DictionaryImpl::new_from_cmudict_file("./cmudict.dict").unwrap();
         // The test is successful if it doesn't crash.
     }
 } // mod tests
