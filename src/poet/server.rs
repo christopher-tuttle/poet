@@ -6,14 +6,13 @@ use rocket::State;
 use rocket_dyn_templates::Template;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::poet::*;
 
 /// A container for data owned by web server that's available for all requests.
-///
-/// XXX: This is assumed to be thread safe but it is only incidentally so right now. Fix it.
 struct ServerState {
-    dict: dictionary::Dictionary,
+    dict: Mutex<dictionary::Dictionary>,
 }
 
 /// A Context for populating the lookup template.
@@ -44,7 +43,9 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         word_groups: BTreeMap::new(),
     };
 
-    if let Some(v) = state.dict.lookup(term) {
+    let dict = state.dict.lock().unwrap();
+
+    if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
             println!(
@@ -54,7 +55,7 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         }
         let entry = &v[0];
         context.entry_info = Some(format!("{:?}", entry));
-        for word in state.dict.similar(term).words {
+        for word in dict.similar(term).words {
             context.similar_words.push(word.word.clone());
             let group = format!("Rhymes with {} syllables", word.syllables);
             if let Some(v) = context.word_groups.get_mut(&group) {
@@ -73,7 +74,9 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 /// be inserted into the page.
 #[get("/api/lookup?<term>")]
 fn api_lookup(state: &State<ServerState>, term: &str) -> String {
-    if let Some(v) = state.dict.lookup(term) {
+    let dict = state.dict.lock().unwrap();
+
+    if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
             println!(
@@ -82,7 +85,7 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
             );
         }
         let entry = &v[0];
-        let similar_info = state.dict.similar(term);
+        let similar_info = dict.similar(term);
         let num_similar = similar_info.words.len();
 
         let mut examples = String::with_capacity(1024); // Arbitrary.
@@ -107,6 +110,14 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
     } else {
         return format!("<em>{}</em> not found.", term);
     }
+}
+
+/// TEST ENDPOINT
+#[get("/mutate")]
+fn mutate(state: &State<ServerState>) -> String {
+    let mut dict = state.dict.lock().unwrap();
+    dict.insert_raw("zyztest AA1 R D V AA2 R K");
+    return format!("<b>it worked!</b>");
 }
 
 /// Describes the parameters and types for /analyze POST requests.
@@ -141,7 +152,8 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     // 3. A rust-generated, colored version, which needs to happen because I'm on a deadline.
     //
     // TODO: Refactor duplicated code below into something a lot better.
-    let stanzas = snippet::get_stanzas_from_text(&req.text, &state.dict);
+    let dict = state.dict.lock().unwrap();
+    let stanzas = snippet::get_stanzas_from_text(&req.text, &dict);
 
     // *** HACK ALERT *** //
     //
@@ -326,9 +338,9 @@ pub async fn run(dictionary: dictionary::Dictionary) {
     println!("*****************************************************************");
 
     let result = rocket::build()
-        .manage(ServerState { dict: dictionary })
+        .manage(ServerState { dict: Mutex::new(dictionary) })
         .attach(Template::fairing())
-        .mount("/", routes![index, lookup, analyze, api_lookup])
+        .mount("/", routes![index, lookup, analyze, api_lookup, mutate])
         .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch()
         .await;

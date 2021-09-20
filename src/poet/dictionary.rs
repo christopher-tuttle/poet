@@ -350,14 +350,12 @@ impl Dictionary {
     }
 
     /// Inserts a single entry.
-    #[cfg(test)] // TODO: Remove?
     pub fn insert(&mut self, entry: Entry) {
         self.insert_internal(entry);
         self.reverse_list.sort();
     }
 
     /// Inserts a single entry as though it would appear as a single line of the cmudict file.
-    #[cfg(test)] // TODO: Remove?
     pub fn insert_raw(&mut self, line: &str) {
         let entry = Entry::new(line);
         self.insert(entry);
