@@ -133,64 +133,15 @@ struct SingleWordAnalysis<'a> {
 fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     let mut context = rocket_dyn_templates::tera::Context::new();
 
+    // Copy the user input to the output to pre-fill the form box.
+    context.insert("user_input", &req.text);
+
     // For the moment, there are many different outputs here:
-    // 1. The "raw" / terminal-like debug strings of all the word lookups, passed to the
-    //    template to be inserted in a <pre> tag.
-    // 2. A more colorful / styled version, showing the words with relevant data.
+    // 
     // 3. A rust-generated, colored version, which needs to happen because I'm on a deadline.
     //
-    // Both are produced below and passed together to the template.
-    //
-    // TODO: Improve the second version to replace the first.
-    // TODO: Refactor duplicated code below into a chart-like form.
+    // TODO: Refactor duplicated code below into something a lot better.
     let stanzas = snippet::get_stanzas_from_text(&req.text, &state.dict);
-
-    // Case 1, the terminal style.
-    let mut raw_style_result = String::with_capacity(8192); // Arbitrary.
-    for s in &stanzas {
-        raw_style_result.push_str(&s.summarize_to_text());
-        raw_style_result.push('\n');
-        for i in s.interpretations().take(1) {
-            // XXX
-            raw_style_result.push_str(&format!("{}\n", &i));
-            match snippet::is_shakespearean_sonnet(&i) {
-                Ok(_) => {
-                    raw_style_result.push_str("This is a valid Shakespearean Sonnet!\n");
-                }
-                Err(v) => {
-                    raw_style_result.push_str("Errors and warnings:\n");
-                    for e in &v {
-                        raw_style_result.push_str(&format!("{}\n", e));
-                    }
-                }
-            }
-        }
-        raw_style_result.push_str("\n\n");
-    }
-    context.insert("raw_analysis", raw_style_result.as_str());
-
-    // Case 2, the colored spans.
-    let mut annotations: Vec<Vec<SingleWordAnalysis>> = vec![];
-    for s in &stanzas {
-        for l in &s.lines {
-            let mut line_annotations: Vec<SingleWordAnalysis> = vec![];
-            for t in &l.tokens {
-                let mut word_info = SingleWordAnalysis {
-                    text: t.text.clone(),
-                    css_class: "missing",
-                    syllables: 0,
-                };
-                if let Some(entry) = &t.entry {
-                    word_info.css_class = "found";
-                    // XXX WRONG -- DOESN't SUPPORT MULTIPLE ENTRIES
-                    word_info.syllables = entry[0].num_syllables();
-                }
-                line_annotations.push(word_info);
-            }
-            annotations.push(line_annotations);
-        }
-    }
-    context.insert("lines", &annotations);
 
     // *** HACK ALERT *** //
     //
@@ -207,7 +158,8 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
                 Ok(_) => {
                     html.push_str("This is a valid Shakespearean Sonnet!\n");
                 }
-                Err(v) => {
+                Err(mut v) => {
+                    v.sort();
                     html.push_str("<span class=\"error_header\">Errors and warnings:</span>\n");
                     for e in &v {
                         use snippet::ClassifyError::*;
@@ -251,7 +203,7 @@ fn line_view_to_html(line: &snippet::LineView) -> String {
     out.push_str(&format!(
         "{:02} {:2}. {}\n",
         line.line.num,
-        line.line.index + 1,
+        line.line.index + 1,  // TODO: HIDE THIS WHEN ONLY ONE STANZA?
         &line.line.raw_text
     ));
     // Start with just blasting everything there, and then make it pretty / evenly spaced.
