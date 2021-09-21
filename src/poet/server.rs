@@ -2,6 +2,7 @@
 
 use rocket::form::Form;
 use rocket::serde::Serialize;
+use rocket::serde::Deserialize;
 use rocket::State;
 use rocket_dyn_templates::Template;
 use std::collections::BTreeMap;
@@ -123,6 +124,29 @@ fn mutate(state: &State<ServerState>) -> String {
     let dict = shelf.mut_dict();
     dict.insert_raw("zyztest AA1 R D V AA2 R K");
     return format!("<b>it worked!</b>");
+}
+
+/// TEST ENDPOINT
+#[get("/remote?<term>")]
+async fn remote(state: &State<ServerState>, term: &str) -> String {
+    do_remote(term).await.unwrap()
+}
+
+#[derive(Debug,Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct SpelledLikeResult {
+    word: String,
+    score: i32,
+    tags: Vec<String>,
+}
+
+async fn do_remote(term: &str) -> Result<String, Box<dyn std::error::Error>> {
+    use std::collections::HashMap;
+    let resp = reqwest::get(&format!("https://api.datamuse.com/words?sp={}&md=r", term))
+        .await?
+        .json::<Vec<SpelledLikeResult>>()
+        .await?;
+    return Ok(format!("{:#?}", resp));
 }
 
 /// Describes the parameters and types for /analyze POST requests.
@@ -349,7 +373,7 @@ pub async fn run(shelf: dictionary::Shelf) {
             shelf: Mutex::new(shelf),
         })
         .attach(Template::fairing())
-        .mount("/", routes![index, lookup, analyze, api_lookup, mutate])
+        .mount("/", routes![index, lookup, analyze, api_lookup, mutate, remote])
         .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch()
         .await;

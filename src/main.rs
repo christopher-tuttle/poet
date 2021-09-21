@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate clap;
+extern crate reqwest;
 use clap::{App, Arg};
 
 mod poet;
