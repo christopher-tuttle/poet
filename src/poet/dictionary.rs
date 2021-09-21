@@ -267,12 +267,14 @@ impl Shelf {
     }
 
     pub fn init_cmudict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        println!("Loading cmudict from {}...", path);
         let dict = DictionaryImpl::new_from_cmudict_file(path)?;
         self.dictionaries.push(dict);
         Ok(())
     }
 
     pub fn init_userdict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        println!("Loading (optionally) a user dictionary from {}...", path);
         let dict = DictionaryImpl::new_from_cmudict_file(path)?;
         self.dictionaries.push(dict);
         Ok(())
