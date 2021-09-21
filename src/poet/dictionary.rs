@@ -321,8 +321,37 @@ impl Dictionary for Shelf {
         // each other. Need to split up the function to have a similarity by phonemes
         // lookup.
         let mut out = SimilarResult { words: vec![] };
+
+        if false { /* old way with bug */
+            for d in &self.dictionaries {
+                // NOTE: This calls the similar() function, which is unmodified from the old way.
+                let mut result = d.similar(query);
+                out.words.append(&mut result.words);
+            }
+            out.words.sort();
+            return out;
+        }
+
+        // Returns all of the query words across all sub-dictionaries.
+        let query_variants = self.lookup(query);
+        if query_variants.is_none() {
+            return out;
+        }
+
+        for query_variant in query_variants.unwrap() {
+            for d in &self.dictionaries {
+                let mut result = d.similar_to_phonemes(query, &query_variant.phonemes);
+                out.words.append(&mut result.words);
+            }
+        }
+        out.words.sort();
+        return out;
+    }
+
+    fn similar_to_phonemes(&self, query: &str, phonemes: &Phonemes) -> SimilarResult {
+        let mut out = SimilarResult { words: vec![] };
         for d in &self.dictionaries {
-            let mut result = d.similar(query);
+            let mut result = d.similar_to_phonemes(query, phonemes);
             out.words.append(&mut result.words);
         }
         out.words.sort();
@@ -405,6 +434,9 @@ pub trait Dictionary {
     fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry>;
 
     fn similar(&self, query: &str) -> SimilarResult;
+
+    /* query is only required to strip self-syns */
+    fn similar_to_phonemes(&self, query: &str, phonemes: &Phonemes) -> SimilarResult;
 }
 
 // TODO: Replace this wasteful and crude similarity algorithm.
@@ -517,7 +549,8 @@ impl Dictionary for DictionaryImpl {
             // Select entries in the reverse_list that have the same last syllable.
             // NOTE: This is a "crude approximation" since it excludes some legitimate rhumes.
             // NOTE: This is a linear scan, which sucks, but it's good enough for now.
-            let key_prefix: String = query_variant.similarity_prefix(1 /* syllable */);
+
+            let key_prefix: String = query_variant.phonemes.last_n_syllables(1 /* syllable */);
             for (prefix, (word, variant)) in &self.reverse_list {
                 if !prefix.starts_with(key_prefix.as_str()) {
                     continue;
@@ -545,6 +578,35 @@ impl Dictionary for DictionaryImpl {
         result.words.sort();
         return result;
     }
+
+    /* query is only required to strip self-syns */
+    fn similar_to_phonemes(&self, query: &str, phonemes: &Phonemes) -> SimilarResult {
+        let mut result = SimilarResult { words: vec![] };
+        let key_prefix: String = phonemes.last_n_syllables(1 /* syllable */);
+        for (prefix, (word, variant)) in &self.reverse_list {
+            if !prefix.starts_with(key_prefix.as_str()) {
+                continue;
+            }
+            if word == query {
+                continue; // Ignore self-syns.
+            }
+
+            // This is an exact lookup for the other word variant.
+            // Not-None because reverse_list should be 1:1 with the main map.
+            let potential_rhyme = self.lookup_variant(&word, *variant).unwrap();
+            let score = phonemes
+                .similarity_score(&potential_rhyme.phonemes);
+            result.words.push(SimilarWord {
+                word: word.clone(),
+                syllables: potential_rhyme.num_syllables(),
+                score: score,
+                phonemes: potential_rhyme.phonemes.clone(),
+            });
+        }
+        result.words.sort();
+        return result;
+    }
+
 }
 
 #[cfg(test)]
