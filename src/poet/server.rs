@@ -1,11 +1,10 @@
 //! HTTP server components for poet.
 
 use rocket::form::Form;
-use rocket::serde::Serialize;
 use rocket::serde::Deserialize;
+use rocket::serde::Serialize;
 use rocket::State;
 use rocket_dyn_templates::Template;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -153,11 +152,11 @@ fn mutate(state: &State<ServerState>) -> String {
 
 /// TEST ENDPOINT
 #[get("/remote?<term>")]
-async fn remote(state: &State<ServerState>, term: &str) -> String {
+async fn remote(_state: &State<ServerState>, term: &str) -> String {
     do_remote(term).await.unwrap()
 }
 
-#[derive(Debug,Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct SpelledLikeResult {
     word: String,
@@ -166,7 +165,6 @@ struct SpelledLikeResult {
 }
 
 async fn do_remote(term: &str) -> Result<String, Box<dyn std::error::Error>> {
-    use std::collections::HashMap;
     let resp = reqwest::get(&format!("https://api.datamuse.com/words?sp={}&md=r", term))
         .await?
         .json::<Vec<SpelledLikeResult>>()
@@ -216,35 +214,36 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     let mut html = String::with_capacity(32768); // Arbitrary.
 
     for s in &stanzas {
-        // BLOCK 1: THE INTERPRETATION.
-        // XXX: FOR NOW JUST USING THE FIRST INTERPRETATION.
-        for i in s.interpretations().take(1) {
-            // XXX
-            html.push_str("<pre>");
-            html.push_str(&format!("{}\n", stanza_view_to_html(&i))); // FIXME TO MAKE NEW RENDERING THINGY
-            match snippet::is_shakespearean_sonnet(&i) {
-                Ok(_) => {
-                    html.push_str("This is a valid Shakespearean Sonnet!\n");
-                }
-                Err(mut v) => {
-                    v.sort();
-                    html.push_str("<span class=\"error_header\">Errors and warnings:</span>\n");
-                    for e in &v {
-                        use snippet::ClassifyError::*;
-                        match &e {
-                            StanzaError(s) => html.push_str(&format!(
-                                "<span class=\"stanza_warning\">{}</span>\n",
-                                &e
-                            )),
-                            LineError(l, s) => html
-                                .push_str(&format!("<span class=\"line_warning\">{}</span>\n", &e)),
-                        }
+        let best = snippet::BestInterpretation::analyze(&s);
+        let i: &snippet::StanzaView = best.best.as_ref().unwrap();
+
+        // XXX
+        html.push_str("<pre>");
+        html.push_str(&format!("{}\n", stanza_view_to_html(&i))); // FIXME TO MAKE NEW RENDERING THINGY
+
+        if best.errors.is_empty() {
+            html.push_str(&format!("<b>What a great {}!</b>\n", &best.validator));
+        } else {
+            html.push_str(&format!(
+                "This looks like a {}, except for these ...\n",
+                &best.validator
+            ));
+            html.push_str("<span class=\"error_header\">Errors and warnings:</span>\n");
+            for e in &best.errors {
+                use snippet::ClassifyError::*;
+                match &e {
+                    StanzaError(_) => {
+                        html.push_str(&format!("<span class=\"stanza_warning\">{}</span>\n", &e))
+                    }
+                    LineError(_, _) => {
+                        html.push_str(&format!("<span class=\"line_warning\">{}</span>\n", &e))
                     }
                 }
             }
-            html.push_str("\n");
-            html.push_str("</pre>");
         }
+        html.push_str("\n");
+        html.push_str("</pre>");
+
         // BLOCK 2: THE STANZA WORDS.
         html.push_str("<pre>");
         html.push_str(&summarize_stanza_to_html(&s)); // hack hack hack
@@ -398,7 +397,10 @@ pub async fn run(shelf: dictionary::Shelf) {
             shelf: Mutex::new(shelf),
         })
         .attach(Template::fairing())
-        .mount("/", routes![index, lookup, analyze, api_lookup, mutate, remote])
+        .mount(
+            "/",
+            routes![index, lookup, analyze, api_lookup, mutate, remote],
+        )
         .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch()
         .await;

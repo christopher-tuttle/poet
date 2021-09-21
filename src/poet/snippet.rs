@@ -509,7 +509,8 @@ impl<'a> Iterator for InterpretationsIter<'a> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let mut count: usize = 1;
-        let mut count_unfiltered: usize = 1;
+        // This is an f64 because sometimes the count overflows a usize.
+        let mut count_unfiltered: f64 = 1.0;
         for line_view in &self.view.lines {
             for (i, token) in line_view.line.tokens.iter().enumerate() {
                 if let Some(v) = &token.entry {
@@ -519,7 +520,7 @@ impl<'a> Iterator for InterpretationsIter<'a> {
                     if i == line_view.line.tokens.len() - 1 {
                         // Last token on the list, so filtering is not relevant.
                         count *= v.len();
-                        count_unfiltered *= v.len();
+                        count_unfiltered *= v.len() as f64;
                         continue;
                     }
 
@@ -529,14 +530,18 @@ impl<'a> Iterator for InterpretationsIter<'a> {
                     } else {
                         count *= v.len();
                     }
-                    count_unfiltered *= v.len();
+                    count_unfiltered *= v.len() as f64;
                 }
             }
         }
         if self.filter {
             return (0, Some(count));
         } else {
-            return (0, Some(count_unfiltered));
+            if count_unfiltered >= usize::MAX as f64 {
+                return (0, Some(usize::MAX));
+            } else {
+                return (0, Some(count_unfiltered as usize));
+            }
         }
     }
 }
@@ -595,6 +600,67 @@ impl PartialEq for ClassifyError {
             (LineError(i1, e1), LineError(i2, e2)) => i1 == i2 && e1 == e2,
             _ => false,
         }
+    }
+}
+
+pub trait Validator {
+    /// A user-understandable name for the validator.
+    fn name(&self) -> &str;
+
+    /// Returns true if the given Stanza could possibly be of this type.
+    ///
+    /// This is supposed to be a quick filter, e.g. on the number of lines.
+    fn accept(&self, stanza: &Stanza) -> bool;
+
+    /// Analyzes the given StanzaView and reports any warnings or errors.
+    fn validate(&self, view: &StanzaView) -> Result<(), Vec<ClassifyError>>;
+}
+
+struct HaikuValidator {}
+
+impl Validator for HaikuValidator {
+    fn name(&self) -> &str {
+        "Haiku"
+    }
+
+    fn accept(&self, stanza: &Stanza) -> bool {
+        stanza.num_lines() == 3
+    }
+
+    fn validate(&self, view: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+        is_haiku(view)
+    }
+}
+
+struct SonnetValidator {}
+
+impl Validator for SonnetValidator {
+    fn name(&self) -> &str {
+        "Shakespearean Sonnet"
+    }
+
+    fn accept(&self, stanza: &Stanza) -> bool {
+        stanza.num_lines() == 14
+    }
+
+    fn validate(&self, view: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+        is_shakespearean_sonnet(view)
+    }
+}
+
+struct AlwaysValidValidator {}
+
+impl Validator for AlwaysValidValidator {
+    fn name(&self) -> &str {
+        "bit of prose"
+    }
+
+    fn accept(&self, _stanza: &Stanza) -> bool {
+        true
+    }
+
+    fn validate(&self, _view: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+        Ok(())
     }
 }
 
@@ -851,6 +917,60 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a dyn Dictionary) -> Vec<S
     return output;
 }
 
+pub struct BestInterpretation<'a> {
+    // These are public for access within server...
+    // XXX FIX IT.
+    pub best: Option<StanzaView<'a>>,
+    pub validator: String,
+    pub errors: Vec<ClassifyError>,
+    pub estimate: (usize, Option<usize>),
+}
+
+impl<'a> BestInterpretation<'a> {
+    pub fn analyze(stanza: &'a Stanza<'a>) -> BestInterpretation<'a> {
+        let mut out = BestInterpretation {
+            best: None,
+            validator: String::new(),
+            errors: vec![],
+            estimate: (0, None),
+        };
+
+        let all_validators: Vec<Box<dyn Validator>> = vec![
+            Box::new(SonnetValidator {}),
+            Box::new(HaikuValidator {}),
+            Box::new(AlwaysValidValidator {}), // So there's always a fallback.
+        ];
+
+        // Pick the first validator that accepts this Stanza.
+        let selected_validator: &Box<dyn Validator> = all_validators
+            .iter()
+            .filter(|v| v.accept(&stanza))
+            .take(1)
+            .next()
+            .unwrap();
+        out.validator = selected_validator.name().to_string();
+
+        let iter = stanza.interpretations();
+        out.estimate = iter.size_hint();
+        for i in iter {
+            match selected_validator.validate(&i) {
+                Ok(_) => {
+                    out.best = Some(i);
+                    out.errors = vec![];
+                }
+                Err(v) => {
+                    if out.best.is_none() || v.len() < out.errors.len() {
+                        out.best = Some(i);
+                        out.errors = v;
+                    }
+                }
+            }
+        }
+        out.errors.sort();
+        return out;
+    }
+}
+
 /// Analyzes the file at `path`, printing the results to the terminal.
 ///
 /// # Arguments
@@ -876,54 +996,16 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &dyn Dictionary) {
     for s in stanzas {
         println!("====== STANZA ======\n{}", s.summarize_to_text());
 
-        let iter = s.interpretations();
-        println!(
-            "ESTIMATED NUMBER OF INTERPRETATIONS: {:?}\n",
-            iter.size_hint()
-        );
-
-        let mut best: Option<StanzaView> = None;
-        let mut best_errors: Vec<ClassifyError> = vec![];
-        for i in iter {
-            // println!("INTERPRETATION:\n{}\n", i);
-
-            if i.num_lines() >= 10 && i.num_lines() <= 16 {
-                match is_shakespearean_sonnet(&i) {
-                    Ok(_) => {
-                        println!("This is a valid Shakespearean Sonnet!");
-                        best = Some(i);
-                        best_errors = vec![];
-                    }
-                    Err(mut v) => {
-                        v.sort();
-                        /*
-                        println!("This isn't a Shakespearean Sonnet because:\n");
-                        for e in &v {
-                            println!("{}", e);
-                        }
-                        */
-                        println!("... with {} errors", v.len());
-                        if best.is_none() || v.len() < best_errors.len() {
-                            best = Some(i);
-                            best_errors = v;
-                        }
-                    }
-                }
-            }
-            /* XXX
-            if is_haiku(&i).is_ok() {
-                println!("What a great haiku!\n\n");
-            }
-            */
-        }
-        println!("Best Interpretation:\n{}\n", &best.unwrap());
-        if !best_errors.is_empty() {
+        let best = BestInterpretation::analyze(&s);
+        println!("Best Interpretation:\n{}\n", &best.best.unwrap());
+        if best.errors.is_empty() {
+            println!("What a great {}!", &best.validator);
+        } else {
+            println!("This looks like a {}, except for these...", &best.validator);
             println!("Errors and warnings:\n");
-            for e in &best_errors {
+            for e in &best.errors {
                 println!("{}", e);
             }
-        } else {
-            println!("It's valid!");
         }
     }
 }
