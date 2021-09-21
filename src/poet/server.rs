@@ -51,10 +51,6 @@ struct LookupTemplateContext<'a> {
 
     /// All of the words, sorted in decreasing order of similarity.
     similar_words: Vec<SimilarWordTemplateContext>,
-
-    /// All of the words, grouped in various ways (the key), sorted in decreasing order of
-    /// simlarity.
-    word_groups: BTreeMap<String, Vec<SimilarWordTemplateContext>>,
 }
 
 /// Handler for querying the dictionary for a single term.
@@ -66,7 +62,6 @@ fn lookup(state: &State<ServerState>, term: &str, num: Option<usize>) -> Templat
         num_found: 0,
         num_returned: 0,
         similar_words: vec![],
-        word_groups: BTreeMap::new(),
     };
     let max_results = num.unwrap_or(500);
 
@@ -94,25 +89,6 @@ fn lookup(state: &State<ServerState>, term: &str, num: Option<usize>) -> Templat
                 phonemes: format!("{}", &word.phonemes),
             };
             context.similar_words.push(word_for_template);
-
-            let groups = vec![
-                format!("Rhymes with {} syllables", word.syllables),
-                format!("Rhymes with score={}", word.score),
-            ];
-            for group in groups {
-                let word_for_template = SimilarWordTemplateContext {
-                    word: word.word.clone(),
-                    syllables: word.syllables,
-                    score: word.score,
-                    phonemes: format!("{}", &word.phonemes),
-                };
-                // let group = format!("Rhymes with {} syllables", word.syllables);
-                if let Some(v) = context.word_groups.get_mut(&group) {
-                    v.push(word_for_template);
-                } else {
-                    context.word_groups.insert(group, vec![word_for_template]);
-                }
-            }
         }
         context.num_returned = context.similar_words.len();
     }

@@ -105,19 +105,6 @@ function sortTable(n,by_number) {
 		<p>Showing {{ num_returned }} of {{ num_found }} potential results.
 		Add <span style="font-family: monospace">&amp;num=N</span> to the query adjust the limit.</span></p>
 
-		<!--
-		{% for label, group in word_groups %}
-			<h2>{{ label }}</h2>
-			<ul>
-			{% for word in group -%}
-			<li class="word_row"><b>{{word.word}}</b>
-				<span class="phonemes">({{word.phonemes}})</span>
-				<span class="entry_aux">(score {{word.score}})</span>
-			</li>
-			{%- endfor %}
-			</ul>
-		{% endfor %}
-		-->
 		<table id="results">
 			<tr>
 				<th onclick="sortTable(0,false)">Word</th>
