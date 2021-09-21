@@ -34,7 +34,8 @@ use std::error::Error;
 use std::fmt;
 
 /// Represents the phonemes of a word, in ARPABET / cmudict format.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(crate = "rocket::serde")]
 pub struct Phonemes {
     /// The individual phonemes as listed, in the original order e.g. `["SH", "R", "IH1", "M", "P"]`.
     pub phonemes: Vec<String>,
@@ -359,6 +360,8 @@ pub struct SimilarWord {
 
     /// Larger scores represent higher similarity.
     pub score: i32,
+
+    pub phonemes: Phonemes,
 }
 
 /// Return value for Dictionary::similar(), holding all the results.
@@ -531,6 +534,7 @@ impl Dictionary for DictionaryImpl {
                     word: word.clone(),
                     syllables: potential_rhyme.num_syllables(),
                     score: score,
+                    phonemes: potential_rhyme.phonemes.clone(),
                 });
             }
         }

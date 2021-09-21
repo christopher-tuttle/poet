@@ -1,0 +1,74 @@
+/*
+ ******* CHANGES ******
+ Style a bunch of stuff.
+ Change out the reds.
+ Span the variant/etc and the phonemes.
+ Span/highlight the lines with errors.
+ Span the errors and warnings blocks
+
+!!! change unknown tokens to put the text and a centered " ? " !!!
+
+maybe do the 
+NN nn.
+style of line prefixes.
+
+links work fine enough.
+
+also, do better with this:
+“Uh, ‘trio-’, no? With BLING and me in this.”
+	uh: "uh" (AH1); variant=1, syllables=1
+	‘trio-': None.
+	no: "no" (N OW1); variant=1, syllables=1
+	with: "with" (W IH1 DH); variant=1, syllables=1
+	    : "with" (W IH1 TH); variant=2, syllables=1
+	    : "with" (W IH0 TH); variant=3, syllables=1
+	    : "with" (W IH0 DH); variant=4, syllables=1
+	bling: None.
+	and: "and" (AH0 N D); variant=1, syllables=1
+	   : "and" (AE1 N D); variant=2, syllables=1
+	me: "me" (M IY1); variant=1, syllables=1
+	in: "in" (IH0 N); variant=1, syllables=1
+	  : "in" (IH1 N); variant=2, syllables=1
+	this: "this" (DH IH1 S); variant=1, syllables=1
+	    : "this" (DH IH0 S); variant=2, syllables=1
+
+and several examples of bad rhyming / etc. to consider in this file.
+
+*/
+.found {
+	color: green;
+}
+.missing {
+	color: #c82829;
+}
+.phonemes {
+	color: #993399;
+}
+.entry_aux {
+	color: #999999;
+}
+.line_number {
+	color: #c67e2d;
+}
+.stanza_warning {
+	font-weight: bold;
+	color: #c82829; /* thank you rust */
+/* other rust colors:
+purple:#8959A8;,
+orange:#c67e2d;
+cyan: #3E999F;
+green: #718C00;
+gray background: rgba(36,37,39,0.6);
+gray text: #8E908C;
+line-highlighted: background-color: #f6fdb0
+
+	*/
+
+}
+.line_warning {
+	background-color: #ffffcc;
+}
+.error_header {
+	font-size: larger;
+	font-weight: bold;
+}

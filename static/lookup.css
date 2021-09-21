@@ -1,0 +1,25 @@
+/* CSS for the /lookup page */
+body {
+	font-family:sans-serif;
+}
+
+#results {
+  border-spacing: 0;
+  width: 100%;
+  border: 1px solid #ddd;
+}	
+
+#results th {
+	cursor: pointer;
+}
+
+#results tr:nth-child(even) {
+	background-color: #f2f2f2;
+}
+
+.word_row {
+	font-family: sans-serif;
+}
+.phonemes {
+	font-family: monospace;
+}

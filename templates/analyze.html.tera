@@ -2,6 +2,7 @@
 <html>
 <head>
 	<title>poet</title>
+	<link rel="stylesheet" type="text/css" media="screen" href="static/colors.css">
 	<link rel="stylesheet" type="text/css" media="screen" href="static/analyze.css">
 </head>
 <body>

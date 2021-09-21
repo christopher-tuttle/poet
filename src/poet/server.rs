@@ -16,6 +16,23 @@ struct ServerState {
     shelf: Mutex<dictionary::Shelf>,
 }
 
+/// A template-oriented version of SimilarWord.
+#[derive(Clone, Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct SimilarWordTemplateContext {
+    /// The word.
+    pub word: String,
+
+    /// The number of syllables in `word`.
+    pub syllables: i32,
+
+    /// Larger scores represent higher similarity.
+    pub score: i32,
+
+    /// Pre-serialized
+    pub phonemes: String,
+}
+
 /// A Context for populating the lookup template.
 #[derive(Serialize)]
 #[serde(crate = "rocket::serde")]
@@ -26,23 +43,32 @@ struct LookupTemplateContext<'a> {
     /// Metadata about the query word;
     entry_info: Option<String>,
 
+    /// The total number of results found.
+    num_found: usize,
+
+    /// The number of results returned.
+    num_returned: usize,
+
     /// All of the words, sorted in decreasing order of similarity.
-    similar_words: Vec<String>,
+    similar_words: Vec<SimilarWordTemplateContext>,
 
     /// All of the words, grouped in various ways (the key), sorted in decreasing order of
     /// simlarity.
-    word_groups: BTreeMap<String, Vec<dictionary::SimilarWord>>,
+    word_groups: BTreeMap<String, Vec<SimilarWordTemplateContext>>,
 }
 
 /// Handler for querying the dictionary for a single term.
-#[get("/lookup?<term>")]
-fn lookup(state: &State<ServerState>, term: &str) -> Template {
+#[get("/lookup?<term>&<num>")]
+fn lookup(state: &State<ServerState>, term: &str, num: Option<usize>) -> Template {
     let mut context = LookupTemplateContext {
         query: term,
         entry_info: None,
+        num_found: 0,
+        num_returned: 0,
         similar_words: vec![],
         word_groups: BTreeMap::new(),
     };
+    let max_results = num.unwrap_or(500);
 
     let shelf = state.shelf.lock().unwrap();
     let dict = shelf.over_all();
@@ -57,15 +83,38 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         }
         let entry = &v[0];
         context.entry_info = Some(format!("{:?}", entry));
-        for word in dict.similar(term).words {
-            context.similar_words.push(word.word.clone());
-            let group = format!("Rhymes with {} syllables", word.syllables);
-            if let Some(v) = context.word_groups.get_mut(&group) {
-                v.push(word.clone());
-            } else {
-                context.word_groups.insert(group, vec![word.clone()]);
+        let similar_result = dict.similar(term);
+        context.num_found = similar_result.words.len();
+        // Assumes sorted!
+        for word in similar_result.words.iter().take(max_results) {
+            let word_for_template = SimilarWordTemplateContext {
+                word: word.word.clone(),
+                syllables: word.syllables,
+                score: word.score,
+                phonemes: format!("{}", &word.phonemes),
+            };
+            context.similar_words.push(word_for_template);
+
+            let groups = vec![
+                format!("Rhymes with {} syllables", word.syllables),
+                format!("Rhymes with score={}", word.score),
+            ];
+            for group in groups {
+                let word_for_template = SimilarWordTemplateContext {
+                    word: word.word.clone(),
+                    syllables: word.syllables,
+                    score: word.score,
+                    phonemes: format!("{}", &word.phonemes),
+                };
+                // let group = format!("Rhymes with {} syllables", word.syllables);
+                if let Some(v) = context.word_groups.get_mut(&group) {
+                    v.push(word_for_template);
+                } else {
+                    context.word_groups.insert(group, vec![word_for_template]);
+                }
             }
         }
+        context.num_returned = context.similar_words.len();
     }
     return Template::render("lookup", context);
 }
