@@ -78,6 +78,16 @@ impl<'a> Line<'a> {
     pub fn has_unknown_words(&self) -> bool {
         self.tokens.iter().filter(|x| x.entry.is_none()).count() > 0
     }
+
+    pub fn unknown_words(&self) -> Vec<String> {
+        let mut out = vec![];
+        for t in &self.tokens {
+            if t.entry.is_none() {
+                out.push(t.text.clone());
+            }
+        }
+        return out;
+    }
 }
 
 /// Container a block of text (usually a single poem) and its analysis.
@@ -158,6 +168,15 @@ impl<'a> Stanza<'a> {
     /// Returns whether there are any unkonwn words across the entire stanza.
     pub fn has_unknown_words(&self) -> bool {
         self.lines.iter().any(|l| l.has_unknown_words())
+    }
+
+    /// Returns a vector of all the unknown words, as terms.
+    pub fn unknown_words(&self) -> Vec<String> {
+        let mut out = vec![];
+        for l in &self.lines {
+            out.append(&mut l.unknown_words());
+        }
+        return out;
     }
 
     /// Returns `StanzaView`s for all possible interpretations of the `Stanza`.

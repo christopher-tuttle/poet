@@ -153,7 +153,34 @@ fn mutate(state: &State<ServerState>) -> String {
 /// TEST ENDPOINT
 #[get("/remote?<term>")]
 async fn remote(_state: &State<ServerState>, term: &str) -> String {
-    do_remote(term).await.unwrap()
+    match do_remote(term).await {
+        Ok(info) => info,
+        Err(e) => format!("Fetch error: {:?}", e),
+    }
+}
+
+#[derive(FromForm)]
+struct BulkFetchRequest<'a> {
+    words: &'a str,
+}
+
+/// TEST ENDPOINT
+#[post("/remote_all", data="<req>")]
+async fn remote_all(_state: &State<ServerState>, req: Form<BulkFetchRequest<'_>>) -> String {
+    let mut out = String::with_capacity(1000);
+    out.push_str("# Found these entries. You can add them to 'userdict.dict'.\n");
+    for word in req.words.split_whitespace().take(100) {
+        match do_remote(&word).await {
+            Ok(info) => {
+                out.push_str(&info);
+            }
+            Err(e) => {
+                out.push_str(&format!("{}: Fetch error: {:?}", &word, &e));
+            }
+        }
+        out.push('\n');
+    }
+    return out;
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,11 +192,35 @@ struct SpelledLikeResult {
 }
 
 async fn do_remote(term: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let resp = reqwest::get(&format!("https://api.datamuse.com/words?sp={}&md=r", term))
+    // Responses look like :
+    // [{"word":"bustards","score":129367,"tags":["pron:B AH1 S T ER0 D Z "]},
+    //  {"word":"bustard","score":65133,"tags":["pron:B AH1 S T ER0 D "]},
+    //  ...]
+    let url = format!("https://api.datamuse.com/words?sp={}&md=r", term);
+    print!("fetching {}...", &url);
+    let resp = reqwest::get(&url)
         .await?
         .json::<Vec<SpelledLikeResult>>()
         .await?;
-    return Ok(format!("{:#?}", resp));
+    println!("done.");
+    if resp.is_empty() {
+        return Ok(format!("# {}: Empty result!", term));
+    }
+
+    for r in &resp {
+        if r.word == term {
+            for t in &r.tags {
+                if t.starts_with("pron:") {
+                    let msg: String = format!("{} {}", term, &t[5..]);
+                    return Ok(msg);
+                }
+            }
+            return Ok(format!("{} found but didn't find pronunciation tags in {:?}", term, &r));
+        }
+    }
+    let pretty_words: Vec<(&String, &Vec<String>)> =
+        resp.iter().map(|r| (&r.word, &r.tags)).collect();
+    return Ok(format!("# {} found only related words: {:?}", term, pretty_words));
 }
 
 /// Describes the parameters and types for /analyze POST requests.
@@ -209,11 +260,15 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     let dict = shelf.over_all();
     let stanzas = snippet::get_stanzas_from_text(&req.text, dict);
 
+    let mut unknown_words = vec![];
+
     // *** HACK ALERT *** //
     //
     let mut html = String::with_capacity(32768); // Arbitrary.
 
     for s in &stanzas {
+        unknown_words.append(&mut s.unknown_words());
+
         let best = snippet::BestInterpretation::analyze(&s);
         let i: &snippet::StanzaView = best.best.as_ref().unwrap();
 
@@ -252,6 +307,7 @@ fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     }
 
     context.insert("prose_html", &html);
+    context.insert("unknown_words", &unknown_words.join("\n"));
     return Template::render("analyze", context.into_json());
 }
 
@@ -399,7 +455,7 @@ pub async fn run(shelf: dictionary::Shelf) {
         .attach(Template::fairing())
         .mount(
             "/",
-            routes![index, lookup, analyze, api_lookup, mutate, remote],
+            routes![index, lookup, analyze, api_lookup, mutate, remote, remote_all],
         )
         .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch()
