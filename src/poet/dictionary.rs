@@ -253,6 +253,91 @@ impl fmt::Display for Entry {
     }
 }
 
+/// A place where Dictionaries are kept. Used to search over a collection of dictionaries.
+///
+/// CAVEATS
+///
+/// This is designed for the case where is one large base dictionary, and up to a few
+/// patch dictionaries that mostly fill in missing entries in the base dictionary. It
+/// falls down after that because:
+///
+/// * The `lookup` methods return the first collection of entries that are found.
+/// * The `similar` methods don't search across dictionary boundaries yet.
+///
+/// These are TODOs.
+pub struct Shelf {
+    dictionaries: Vec<DictionaryImpl>,
+}
+
+impl Shelf {
+    pub fn new() -> Shelf {
+        Shelf {
+            dictionaries: vec![],
+        }
+    }
+
+    pub fn init_cmudict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        println!("Loading cmudict from {}...", path);
+        let dict = DictionaryImpl::new_from_cmudict_file(path)?;
+        self.dictionaries.push(dict);
+        Ok(())
+    }
+
+    pub fn init_userdict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
+        println!("Loading (optionally) a user dictionary from {}...", path);
+        let dict = DictionaryImpl::new_from_cmudict_file(path)?;
+        self.dictionaries.push(dict);
+        Ok(())
+    }
+
+    /// Returns a Dictionary that searches over all loaded dictionaries.
+    ///
+    /// See CAVEATS for `Shelf`.
+    pub fn over_all(&self) -> &dyn Dictionary {
+        return self;
+    }
+}
+
+impl Dictionary for Shelf {
+    /// See CAVEATS for `Shelf`.
+    fn lookup(&self, term: &str) -> Option<&Vec<Entry>> {
+        // TODO: This return type doesn't work well. Address merging and collisions.
+        for d in &self.dictionaries {
+            let result = d.lookup(term);
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    /// See CAVEATS for `Shelf`.
+    fn lookup_variant(&self, term: &str, variant: i32) -> Option<&Entry> {
+        // TODO: This return type doesn't work well. Address merging and collisions.
+        for d in &self.dictionaries {
+            let result = d.lookup_variant(term, variant);
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    /// See CAVEATS for `Shelf`.
+    fn similar(&self, query: &str) -> SimilarResult {
+        // TODO: BUG: The various dictionaries can't find words that rhyme accross
+        // each other. Need to split up the function to have a similarity by phonemes
+        // lookup.
+        let mut out = SimilarResult { words: vec![] };
+        for d in &self.dictionaries {
+            let mut result = d.similar(query);
+            out.words.append(&mut result.words);
+        }
+        out.words.sort();
+        return out;
+    }
+}
+
 /// A container for a collection of entries.
 ///
 /// Either construct one and populate it with individual entries, or initialize one from

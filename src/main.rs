@@ -34,6 +34,14 @@ async fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("userdict")
+                .short("u")
+                .long("userdict")
+                .value_name("FILE")
+                .help("Path to the user dictionary, in cmudict format.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("query")
                 .short("q")
                 .long("query")
@@ -60,24 +68,33 @@ async fn main() {
         .get_matches();
 
     let cmudict_path = matches.value_of("dict").unwrap_or("./cmudict.dict");
+    let userdict_path = matches.value_of("userdict").unwrap_or("./userdict.dict");
 
-    let dict = poet::dictionary::DictionaryImpl::new_from_cmudict_file(cmudict_path)
+    let mut shelf = poet::dictionary::Shelf::new();
+    shelf
+        .init_cmudict(cmudict_path)
         .expect("Failed to read cmudict file!");
+    if let Err(e) = shelf.init_userdict(userdict_path) {
+        println!(
+            "Failed to read userdict file. Skipping and continuing. Error={}",
+            e
+        );
+    }
 
     if let Some(q) = matches.value_of("query") {
         // TODO: Exit with a failure status value if lookup failed.
-        handle_term_query(q, &dict);
+        handle_term_query(q, shelf.over_all());
         return;
     }
 
     if let Some(path) = matches.value_of("input") {
         // TODO: Handle errors more gracefully.
-        snippet::analyze_one_file_to_terminal(path, &dict);
+        snippet::analyze_one_file_to_terminal(path, shelf.over_all());
         return;
     }
 
     if matches.is_present("server") {
-        server::run(dict).await;
+        server::run(shelf).await;
         return;
     }
 

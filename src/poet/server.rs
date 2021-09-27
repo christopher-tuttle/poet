@@ -12,7 +12,7 @@ use crate::poet::*;
 
 /// A container for data owned by web server that's available for all requests.
 struct ServerState {
-    dict: Mutex<dictionary::DictionaryImpl>,
+    shelf: Mutex<dictionary::Shelf>,
 }
 
 /// A Context for populating the lookup template.
@@ -43,9 +43,9 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
         word_groups: BTreeMap::new(),
     };
 
-    let dict = state.dict.lock().unwrap();
+    let shelf = state.shelf.lock().unwrap();
+    let dict = shelf.over_all();
 
-    use dictionary::Dictionary;
     if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
@@ -75,9 +75,10 @@ fn lookup(state: &State<ServerState>, term: &str) -> Template {
 /// be inserted into the page.
 #[get("/api/lookup?<term>")]
 fn api_lookup(state: &State<ServerState>, term: &str) -> String {
-    let dict = state.dict.lock().unwrap();
+    let shelf = state.shelf.lock().unwrap();
 
-    use dictionary::Dictionary;
+    let dict = shelf.over_all();
+
     if let Some(v) = dict.lookup(term) {
         if v.len() > 1 {
             // FIXME: Ignoring this case.
@@ -129,8 +130,9 @@ struct AnalyzeRequest<'a> {
 fn analyze(state: &State<ServerState>, req: Form<AnalyzeRequest>) -> Template {
     let mut result = String::with_capacity(8192); // Arbitrary.
 
-    let dict = state.dict.lock().unwrap();
-    let stanzas = snippet::get_stanzas_from_text(&req.text, &*dict);
+    let shelf = state.shelf.lock().unwrap();
+    let dict = shelf.over_all();
+    let stanzas = snippet::get_stanzas_from_text(&req.text, dict);
     for s in stanzas {
         result.push_str(&s.summarize_to_text());
         result.push('\n');
@@ -152,8 +154,8 @@ fn index() -> Template {
 ///
 /// Args:
 ///
-/// * `dictionary` - An already-initialized dictionary to use when handling all requests.
-pub async fn run(dictionary: dictionary::DictionaryImpl) {
+/// * `shelf` - An already-initialized collection of dictionaries.
+pub async fn run(shelf: dictionary::Shelf) {
     println!("*****************************************************************");
     println!("*                                                               *");
     println!("*  Launching Web Server.                                        *");
@@ -164,7 +166,7 @@ pub async fn run(dictionary: dictionary::DictionaryImpl) {
 
     let result = rocket::build()
         .manage(ServerState {
-            dict: Mutex::new(dictionary),
+            shelf: Mutex::new(shelf),
         })
         .attach(Template::fairing())
         .mount("/", routes![index, lookup, analyze, api_lookup])
