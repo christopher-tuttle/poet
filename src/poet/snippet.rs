@@ -486,7 +486,8 @@ impl<'a> Iterator for InterpretationsIter<'a> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let mut count: usize = 1;
-        let mut count_unfiltered: usize = 1;
+        // This is an f64 because sometimes the count overflows a usize.
+        let mut count_unfiltered: f64 = 1.0;
         for line_view in &self.view.lines {
             for (i, token) in line_view.line.tokens.iter().enumerate() {
                 if let Some(v) = &token.entry {
@@ -496,7 +497,7 @@ impl<'a> Iterator for InterpretationsIter<'a> {
                     if i == line_view.line.tokens.len() - 1 {
                         // Last token on the list, so filtering is not relevant.
                         count *= v.len();
-                        count_unfiltered *= v.len();
+                        count_unfiltered *= v.len() as f64;
                         continue;
                     }
 
@@ -506,14 +507,18 @@ impl<'a> Iterator for InterpretationsIter<'a> {
                     } else {
                         count *= v.len();
                     }
-                    count_unfiltered *= v.len();
+                    count_unfiltered *= v.len() as f64;
                 }
             }
         }
         if self.filter {
             return (0, Some(count));
         } else {
-            return (0, Some(count_unfiltered));
+            if count_unfiltered >= usize::MAX as f64 {
+                return (0, Some(usize::MAX));
+            } else {
+                return (0, Some(count_unfiltered as usize));
+            }
         }
     }
 }
