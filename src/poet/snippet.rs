@@ -6,6 +6,8 @@
 //!
 //! Generally, the text in a snippet will have punctuation, capitalization,
 //! and other formatting that may have to be removed.
+use std::cmp::Ordering;
+
 use crate::poet::dictionary::*;
 
 /// A token is one word from the original text, normalized and annotated.
@@ -31,6 +33,9 @@ pub struct Line<'a> {
     /// The line number of the orignal line, 1-indexed.
     pub num: usize,
 
+    /// The index of the line within the enclosing stanza, 0-indexed.
+    pub index: usize,
+
     /// The tokenized version of `raw_text`.
     pub tokens: Vec<Token<'a>>,
 }
@@ -41,13 +46,20 @@ impl<'a> Line<'a> {
     /// Arguments:
     /// * `raw` - A non-empty line from a poem, e.g. `Roses are red,`.
     /// * `line_num` - The 1-indexed line number from the original source.
+    /// * `index` - The index of this line in the enclosing Stanza (0 indexed).
     /// * `dict` - The dictionary to use for word lookups.
     ///
     /// Lifetime note: the `Dictionary` must outlive the returned `Line`.
-    fn new_from_line<'b>(raw: &str, line_num: usize, dict: &'b Dictionary) -> Line<'b> {
+    fn new_from_line<'b>(
+        raw: &str,
+        line_num: usize,
+        index: usize,
+        dict: &'b Dictionary,
+    ) -> Line<'b> {
         let mut result = Line {
             raw_text: raw.to_string(),
             num: line_num,
+            index: index,
             tokens: vec![],
         };
 
@@ -154,6 +166,53 @@ impl<'a> Stanza<'a> {
     /// `Entry` set for them.
     pub fn interpretations(&self) -> InterpretationsIter {
         InterpretationsIter::new(self)
+    }
+
+    /// Finds the interpretation of this stanza with best fit (fewest errors).
+    ///
+    /// This checks the stanza against all the validators, and then finds
+    /// the interpretation (`StanzaView`) that matches the best.
+    pub fn analyze(&self) -> BestInterpretation {
+        let mut out = BestInterpretation {
+            best: None,
+            validator: String::new(),
+            errors: vec![],
+            estimate: (0, None),
+        };
+
+        let all_validators: Vec<Box<dyn Validator>> = vec![
+            Box::new(SonnetValidator {}),
+            Box::new(HaikuValidator {}),
+            Box::new(AlwaysValidValidator {}), // So there's always a fallback.
+        ];
+
+        // Pick the first validator that accepts this Stanza.
+        let selected_validator: &Box<dyn Validator> = all_validators
+            .iter()
+            .filter(|v| v.accept(&self))
+            .take(1)
+            .next()
+            .unwrap();
+        out.validator = selected_validator.name().to_string();
+
+        let iter = self.interpretations();
+        out.estimate = iter.size_hint();
+        for i in iter {
+            match selected_validator.validate(&i) {
+                Ok(_) => {
+                    out.best = Some(i);
+                    out.errors = vec![];
+                }
+                Err(v) => {
+                    if out.best.is_none() || v.len() < out.errors.len() {
+                        out.best = Some(i);
+                        out.errors = v;
+                    }
+                }
+            }
+        }
+        out.errors.sort();
+        return out;
     }
 }
 
@@ -308,6 +367,11 @@ impl<'a> LineView<'a> {
     /// Returns the line number from the original snippet corresponding to this Line.
     pub fn num(&self) -> usize {
         self.line.num
+    }
+
+    /// Returns the index of the line in the parent `Stanza` (0..num_lines-1)
+    pub fn index(&self) -> usize {
+        self.line.index
     }
 
     /// Returns whether there are any words on this line that aren't in the dictionary.
@@ -523,6 +587,129 @@ impl<'a> Iterator for InterpretationsIter<'a> {
     }
 }
 
+/// Stores errors and warnings for the stanza classifiers, with machine-readable line information.
+#[derive(Debug, Eq)]
+pub enum ClassifyError {
+    /// An error covering whole stanza, e.g. that it has the wrong number of lines.
+    StanzaError(String),
+    /// An error referring to a specific line. The line is an index into Stanza.lines.
+    LineError(usize, String),
+}
+
+impl std::fmt::Display for ClassifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use ClassifyError::LineError;
+        use ClassifyError::StanzaError;
+        match self {
+            StanzaError(s) => write!(f, "Stanza: {}", &s),
+            LineError(index, s) => write!(f, "Line {}: {}", index + 1, &s),
+        }
+    }
+}
+
+impl Ord for ClassifyError {
+    // Desired ordering: Stanza errors come first, followed by Line errors, ordered by line.
+    fn cmp(&self, other: &Self) -> Ordering {
+        use ClassifyError::LineError;
+        use ClassifyError::StanzaError;
+        match (self, other) {
+            (StanzaError(e1), StanzaError(e2)) => e1.cmp(&e2),
+            (StanzaError(_), _) => Ordering::Less,
+            (_, StanzaError(_)) => Ordering::Greater,
+            (LineError(i1, e1), LineError(i2, e2)) => {
+                if i1 == i2 {
+                    e1.cmp(&e2)
+                } else {
+                    i1.cmp(i2)
+                }
+            }
+        }
+    }
+}
+
+impl PartialOrd for ClassifyError {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for ClassifyError {
+    fn eq(&self, other: &Self) -> bool {
+        use ClassifyError::LineError;
+        use ClassifyError::StanzaError;
+        match (self, other) {
+            (StanzaError(e1), StanzaError(e2)) => e1 == e2,
+            (LineError(i1, e1), LineError(i2, e2)) => i1 == i2 && e1 == e2,
+            _ => false,
+        }
+    }
+}
+
+/// Validators determine whether a StanzaView is of a type (Sonnet, Haiku, ...).
+pub trait Validator {
+    /// A user-understandable name for the validator, e.g. "Haiku".
+    fn name(&self) -> &str;
+
+    /// Returns true if the given Stanza could possibly be of this type.
+    ///
+    /// This is supposed to be a quick filter, e.g. on the number of lines.
+    fn accept(&self, stanza: &Stanza) -> bool;
+
+    /// Analyzes the given StanzaView and reports any warnings or errors.
+    fn validate(&self, view: &StanzaView) -> Result<(), Vec<ClassifyError>>;
+}
+
+/// Determines if the input is a Haiku.
+struct HaikuValidator {}
+
+impl Validator for HaikuValidator {
+    fn name(&self) -> &str {
+        "Haiku"
+    }
+
+    fn accept(&self, stanza: &Stanza) -> bool {
+        stanza.num_lines() == 3
+    }
+
+    fn validate(&self, view: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+        is_haiku(view)
+    }
+}
+
+/// Determines if the input is a Shakespearean Sonnet.
+struct SonnetValidator {}
+
+impl Validator for SonnetValidator {
+    fn name(&self) -> &str {
+        "Shakespearean Sonnet"
+    }
+
+    fn accept(&self, stanza: &Stanza) -> bool {
+        stanza.num_lines() == 14
+    }
+
+    fn validate(&self, view: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+        is_shakespearean_sonnet(view)
+    }
+}
+
+/// This validator accepts all inputs as valid.
+struct AlwaysValidValidator {}
+
+impl Validator for AlwaysValidValidator {
+    fn name(&self) -> &str {
+        "bit of prose"
+    }
+
+    fn accept(&self, _stanza: &Stanza) -> bool {
+        true
+    }
+
+    fn validate(&self, _view: &StanzaView) -> Result<(), Vec<ClassifyError>> {
+        Ok(())
+    }
+}
+
 /// Returns whether the given Stanza is probably a Haiku.
 ///
 /// If all the words are known, the result will be accurate. If some are unknown
@@ -531,14 +718,14 @@ impl<'a> Iterator for InterpretationsIter<'a> {
 ///
 /// Returns:
 /// - `Ok(())` if valid.
-/// - `Err(info)` if not valid, with a reason why.
-fn is_haiku(stanza: &StanzaView) -> Result<(), String> {
+/// - `Err(errors)` if not valid, with a vector of ClassifyErrors.
+fn is_haiku(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
     check_stanza_has_num_lines(stanza, 3)?;
 
-    let mut errors = String::new();
+    let mut errors = vec![];
     for (i, expected_syllables) in [5, 7, 5].iter().enumerate() {
-        if let Err(info) = check_line_has_num_syllables(&stanza.lines[i], *expected_syllables) {
-            errors.push_str(&info);
+        if let Err(mut v) = check_line_has_num_syllables(&stanza.lines[i], *expected_syllables) {
+            errors.append(&mut v);
         }
     }
     if errors.is_empty() {
@@ -556,20 +743,20 @@ fn is_haiku(stanza: &StanzaView) -> Result<(), String> {
 ///
 /// Returns:
 /// - `Ok(())` if valid.
-/// - `Err(info)` if not valid, with a reason why.
-fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), String> {
+/// - `Err(errors)` if not valid, with a vector of ClassifyErrors.
+fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), Vec<ClassifyError>> {
     check_stanza_has_num_lines(stanza, 14)?;
 
-    let mut errors = String::new();
+    let mut errors = vec![];
     for line in &stanza.lines {
-        if let Err(info) = check_line_has_num_syllables(&line, 10) {
-            errors.push_str(&info);
+        if let Err(mut v) = check_line_has_num_syllables(&line, 10) {
+            errors.append(&mut v);
         }
     }
     let rhyming_lines = [(0, 2), (1, 3), (4, 6), (5, 7), (8, 10), (9, 11), (12, 13)];
     for (a, b) in rhyming_lines {
-        if let Err(info) = check_lines_rhyme(&stanza.lines[a], &stanza.lines[b]) {
-            errors.push_str(&info);
+        if let Err(mut v) = check_lines_rhyme(&stanza.lines[a], &stanza.lines[b]) {
+            errors.append(&mut v);
         }
     }
 
@@ -584,7 +771,7 @@ fn is_shakespearean_sonnet(stanza: &StanzaView) -> Result<(), String> {
 ///
 /// Rhyming is currently that they share the same last syllable. This is conservative and treats
 /// unknown words as correct.
-fn check_lines_rhyme(a: &LineView, b: &LineView) -> Result<(), String> {
+fn check_lines_rhyme(a: &LineView, b: &LineView) -> Result<(), Vec<ClassifyError>> {
     let a_last_entry = a.last_entry();
     let b_last_entry = b.last_entry();
     if a_last_entry.is_none() || b_last_entry.is_none() {
@@ -594,13 +781,17 @@ fn check_lines_rhyme(a: &LineView, b: &LineView) -> Result<(), String> {
     if a_last_entry.unwrap().rhymes_with(&b_last_entry.unwrap()) {
         Ok(())
     } else {
-        Err(format!(
-            "lines {} and {}: the words {} and {} don't rhyme?\n",
+        let error_msg = format!(
+            "lines {} and {}: the words {} and {} don't rhyme?",
             a.num(),
             b.num(),
             &a_last_entry.unwrap(),
             &b_last_entry.unwrap()
-        ))
+        );
+        Err(vec![
+            ClassifyError::LineError(a.index(), error_msg.clone()),
+            ClassifyError::LineError(b.index(), error_msg),
+        ])
     }
 }
 
@@ -609,13 +800,13 @@ fn check_lines_rhyme(a: &LineView, b: &LineView) -> Result<(), String> {
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with a reason why.
-fn check_stanza_has_num_lines(stanza: &StanzaView, n: usize) -> Result<(), String> {
+fn check_stanza_has_num_lines(stanza: &StanzaView, n: usize) -> Result<(), Vec<ClassifyError>> {
     if stanza.num_lines() != n {
-        return Err(format!(
-            "Expected {} lines but the stanza has {}.\n",
+        return Err(vec![ClassifyError::StanzaError(format!(
+            "Expected {} lines but the stanza has {}.",
             n,
             stanza.num_lines()
-        ));
+        ))]);
     }
     Ok(())
 }
@@ -629,27 +820,33 @@ fn check_stanza_has_num_lines(stanza: &StanzaView, n: usize) -> Result<(), Strin
 /// Returns:
 /// - `Ok(())` if valid.
 /// - `Err(info)` if not valid, with reason why.
-fn check_line_has_num_syllables(line: &LineView, expected: i32) -> Result<(), String> {
-    let mut errors = String::new();
+fn check_line_has_num_syllables(line: &LineView, expected: i32) -> Result<(), Vec<ClassifyError>> {
+    let mut errors = vec![];
 
     let num_syllables = line.num_syllables();
     if line.has_unknown_words() {
         if num_syllables >= expected {
-            errors.push_str(&format!(
-                "line {} has unknown words and {} syllables already, so it will exceed \
-                    the limit of {}. \n",
-                line.num(),
-                num_syllables,
-                expected
+            errors.push(ClassifyError::LineError(
+                line.index(),
+                format!(
+                    "line {} has unknown words and {} syllables already, so it will exceed \
+                    the limit of {}.",
+                    line.num(),
+                    num_syllables,
+                    expected
+                ),
             ));
         }
         // Assume that the line is ok.
     } else if num_syllables != expected {
-        errors.push_str(&format!(
-            "line {} has {} syllables but should have {}. \n",
-            line.num(),
-            num_syllables,
-            expected
+        errors.push(ClassifyError::LineError(
+            line.index(),
+            format!(
+                "line {} has {} syllables but should have {}.",
+                line.num(),
+                num_syllables,
+                expected
+            ),
         ));
     }
     if errors.is_empty() {
@@ -720,9 +917,11 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
             }
             continue;
         }
+        let index = stanza.lines.len();
         stanza.lines.push(Line::new_from_line(
             line,
             line_num + 1, /* 1-indexed */
+            index,
             dict,
         ));
     }
@@ -732,6 +931,18 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a Dictionary) -> Vec<Stanz
         output.push(stanza);
     }
     return output;
+}
+
+/// The return value of `Stanza::analyze()`.
+pub struct BestInterpretation<'a> {
+    /// The best interpretation. It's safe to assume this is always Some.
+    best: Option<StanzaView<'a>>,
+    /// The name of the validator.
+    validator: String,
+    /// Any errors found.
+    errors: Vec<ClassifyError>,
+    /// The estimated number of interpretations.
+    estimate: (usize, Option<usize>),
 }
 
 /// Analyzes the file at `path`, printing the results to the terminal.
@@ -759,22 +970,15 @@ pub fn analyze_one_file_to_terminal(path: &str, dict: &Dictionary) {
     for s in stanzas {
         println!("====== STANZA ======\n{}", s.summarize_to_text());
 
-        let iter = s.interpretations();
-        println!(
-            "ESTIMATED NUMBER OF INTERPRETATIONS: {:?}\n",
-            iter.size_hint()
-        );
-        for i in iter {
-            println!("INTERPRETATION:\n{}\n", i);
-
-            if i.num_lines() == 14 {
-                match is_shakespearean_sonnet(&i) {
-                    Ok(_) => println!("This is a valid Shakespearean Sonnet!"),
-                    Err(txt) => println!("This isn't a Shakespearean Sonnet because:\n{}\n", &txt),
-                }
-            }
-            if is_haiku(&i).is_ok() {
-                println!("What a great haiku!\n\n");
+        let best = s.analyze();
+        println!("Best Interpretation:\n{}\n", &best.best.unwrap());
+        if best.errors.is_empty() {
+            println!("What a great {}!", &best.validator);
+        } else {
+            println!("This looks like a {}, except for these...", &best.validator);
+            println!("Errors and warnings:\n");
+            for e in &best.errors {
+                println!("{}", e);
             }
         }
     }
@@ -901,6 +1105,19 @@ mod tests {
         assert_eq!(output[0].lines.len(), 3);
         assert_eq!(output[1].title.as_ref().unwrap(), "Valentine");
         assert_eq!(output[1].lines.len(), 4);
+    }
+
+    #[test]
+    fn test_classifyerror_ord() {
+        use ClassifyError::LineError;
+        use ClassifyError::StanzaError;
+        // Spot check -- not exhaustive.
+        // StanzaErrors should come first, ordered by error string.
+        assert!(StanzaError("".to_string()) < LineError(0, "".to_string()));
+        assert!(StanzaError("abc".to_string()) < StanzaError("def".to_string()));
+        // LineErrors should come after, sorted by line then string.
+        assert!(LineError(42, "z".to_string()) > LineError(8, "a".to_string()));
+        assert!(LineError(42, "a".to_string()) < LineError(42, "z".to_string()));
     }
 
     mod is_haiku {
