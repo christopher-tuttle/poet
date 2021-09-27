@@ -67,14 +67,23 @@ async fn main() {
     if let Some(q) = matches.value_of("query") {
         // TODO: Exit with a failure status value if lookup failed.
         handle_term_query(q, &dict);
+        return;
     }
 
     if let Some(path) = matches.value_of("input") {
         // TODO: Handle errors more gracefully.
         snippet::analyze_one_file_to_terminal(path, &dict);
+        return;
     }
 
     if matches.is_present("server") {
         server::run(dict).await;
+        return;
     }
+
+    println!(
+        "\nUSAGE (see poet --help for more):\n\n\
+             Either run poet as a server ('poet --server') or provide it with a file or query,\n\
+             such as 'poet --input examples/shakespeare-all.txt'.\n"
+    );
 }
