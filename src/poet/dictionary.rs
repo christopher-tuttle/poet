@@ -266,7 +266,7 @@ impl fmt::Display for Entry {
 ///
 /// These are TODOs.
 pub struct Shelf {
-    dictionaries: Vec<DictionaryImpl>,
+    dictionaries: Vec<Box<dyn Dictionary + std::marker::Send>>,
 }
 
 impl Shelf {
@@ -279,14 +279,14 @@ impl Shelf {
     pub fn init_cmudict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
         println!("Loading cmudict from {}...", path);
         let dict = DictionaryImpl::new_from_cmudict_file(path)?;
-        self.dictionaries.push(dict);
+        self.dictionaries.push(Box::new(dict));
         Ok(())
     }
 
     pub fn init_userdict(&mut self, path: &str) -> Result<(), Box<dyn Error>> {
         println!("Loading (optionally) a user dictionary from {}...", path);
         let dict = DictionaryImpl::new_from_cmudict_file(path)?;
-        self.dictionaries.push(dict);
+        self.dictionaries.push(Box::new(dict));
         Ok(())
     }
 
@@ -295,6 +295,12 @@ impl Shelf {
     /// See CAVEATS for `Shelf`.
     pub fn over_all(&self) -> &dyn Dictionary {
         return self;
+    }
+
+    #[cfg(test)]
+    // Adds a dictionary to the end of the dictionary list, transferring ownership.
+    fn push_dictionary(&mut self, dict: Box<dyn Dictionary + std::marker::Send>) {
+        self.dictionaries.push(dict);
     }
 }
 
@@ -716,6 +722,135 @@ mod tests {
         dict.insert(Entry::new("aardvark AA1 R D V AA2 R K"));
         dict.insert(Entry::new("aardvarks AA1 R D V AA2 R K S"));
         assert_eq!(dict.len(), 3);
+    }
+
+    mod shelf {
+        use super::*;
+
+        #[test]
+        fn does_not_crash_with_no_dictionaries() {
+            let shelf = Shelf::new();
+            assert!(shelf.over_all().lookup("foo").is_none());
+            assert!(shelf.over_all().lookup_variant("foo", 1).is_none());
+            assert!(shelf.over_all().similar("foo").words.is_empty());
+        }
+
+        fn push_dictionary_with_entries(shelf: &mut Shelf, entries: Vec<&str>) {
+            let mut dict = Box::new(DictionaryImpl::new());
+            dict.insert_all(&entries);
+            shelf.push_dictionary(dict);
+        }
+
+        #[test]
+        fn lookup_over_multiple_dictionaries() {
+            // Current known / expected behavior: Should return all matches in earliest dictionary.
+            let mut shelf = Shelf::new();
+            push_dictionary_with_entries(
+                &mut shelf,
+                vec![
+                    "apple AE1 P AH0 L",
+                    "avocado AE2 V AH0 K AA1 D OW0", // Should be returned.
+                    "avocado(2) AE2 V AH0 K AA1 D OW0 Z", // Should be returned.
+                ],
+            );
+            push_dictionary_with_entries(
+                &mut shelf,
+                vec![
+                    "avocado G AA1", // These are fake phonemes and only 1 syllable.
+                    "mango M AE1 NG G OW0",
+                    "pineapple(42) P AY1 N AE2 P AH0 L",
+                ],
+            );
+
+            {
+                let only_in_first = shelf.over_all().lookup("apple").unwrap();
+                assert_eq!(only_in_first.len(), 1);
+                assert_eq!(only_in_first[0].word, "apple");
+            }
+            {
+                let in_both = shelf.over_all().lookup("avocado").unwrap();
+                assert_eq!(in_both.len(), 2);
+                // If the word came from dict1, it would only have one syllable.
+                assert_eq!(in_both[0].num_syllables(), 4);
+                assert_eq!(in_both[1].num_syllables(), 4);
+                assert_eq!(in_both[1].variant, 2);
+            }
+            {
+                let only_in_second = shelf.over_all().lookup("mango").unwrap();
+                assert_eq!(only_in_second.len(), 1);
+                assert_eq!(only_in_second[0].word, "mango");
+            }
+            {
+                let in_neither = shelf.over_all().lookup("foo");
+                assert!(in_neither.is_none());
+            }
+            {
+                let only_as_a_variant = shelf.over_all().lookup("pineapple").unwrap();
+                assert_eq!(only_as_a_variant.len(), 1);
+                assert_eq!(only_as_a_variant[0].variant, 42);
+            }
+        }
+
+        #[test]
+        fn lookup_variant_over_multiple_dictionaries() {
+            // Current known / expected behavior: Should return match in earliest dictionary.
+            let mut shelf = Shelf::new();
+            push_dictionary_with_entries(
+                &mut shelf,
+                vec![
+                    "a AH0",
+                    "a(2) EY1",
+                    "abts AE1 B T S",
+                    "abts(2) EY1 B IY1 T IY1 Z",
+                    "acetic(2) AH0 S IY1 T IH0 K",
+                ],
+            );
+            push_dictionary_with_entries(
+                &mut shelf,
+                vec![
+                    "ab AE1 B",
+                    "ab(2) EY1 B IY1",
+                    "abts AE1 B T S",
+                    "abts(3) EY1 B IY1 T IY1 EH1 S",
+                ],
+            );
+
+            let dict = shelf.over_all();
+            {
+                // Test lookups for variants found exclusively in either dict are returned.
+                // "a" and variants are exclusive to dict 0.
+                // "ab" and variants are exclusive to dict 1.
+                assert_eq!(dict.lookup_variant("a", 1).unwrap().dict_key(), "a");
+                assert_eq!(dict.lookup_variant("a", 2).unwrap().dict_key(), "a(2)");
+                assert_eq!(dict.lookup_variant("ab", 1).unwrap().dict_key(), "ab");
+                assert_eq!(dict.lookup_variant("ab", 2).unwrap().dict_key(), "ab(2)");
+            }
+            {
+                // Test lookups for variants shared across both dictionaries.
+                // For "abts", the first variant is in both, and there is one unique variant in
+                // each of the dictionaries.
+                assert_eq!(
+                    dict.lookup_variant("abts", 1).unwrap().phonemes.phonemes,
+                    vec!["AE1", "B", "T", "S"],
+                );
+                assert_eq!(
+                    dict.lookup_variant("abts", 2).unwrap().phonemes.phonemes,
+                    vec!["EY1", "B", "IY1", "T", "IY1", "Z"],
+                );
+                assert_eq!(
+                    dict.lookup_variant("abts", 3).unwrap().phonemes.phonemes,
+                    vec!["EY1", "B", "IY1", "T", "IY1", "EH1", "S"],
+                );
+            }
+            {
+                // This word only exists as a variant 2.
+                assert!(dict.lookup_variant("acetic", 1).is_none());
+                assert_eq!(
+                    dict.lookup_variant("acetic", 2).unwrap().phonemes.phonemes,
+                    vec!["AH0", "S", "IY1", "T", "IH0", "K"],
+                );
+            }
+        }
     }
 
     #[test]
