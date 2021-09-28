@@ -215,10 +215,6 @@ impl Entry {
         return key;
     }
 
-    fn similarity_prefix(&self, syllable_count: usize) -> String {
-        return self.phonemes.last_n_syllables(syllable_count);
-    }
-
     pub fn rhymes_with(&self, other: &Self) -> bool {
         return self.phonemes.rhymes_with(&other.phonemes);
     }
@@ -262,7 +258,6 @@ impl fmt::Display for Entry {
 /// falls down after that because:
 ///
 /// * The `lookup` methods return the first collection of entries that are found.
-/// * The `similar` methods don't search across dictionary boundaries yet.
 ///
 /// These are TODOs.
 pub struct Shelf {
@@ -331,12 +326,28 @@ impl Dictionary for Shelf {
 
     /// See CAVEATS for `Shelf`.
     fn similar(&self, query: &str) -> SimilarResult {
-        // TODO: BUG: The various dictionaries can't find words that rhyme accross
-        // each other. Need to split up the function to have a similarity by phonemes
-        // lookup.
+        let mut out = SimilarResult { words: vec![] };
+
+        // Returns all of the query words across all sub-dictionaries.
+        let query_variants = self.lookup(query);
+        if query_variants.is_none() {
+            return out;
+        }
+
+        for query_variant in query_variants.unwrap() {
+            for d in &self.dictionaries {
+                let mut result = d.similar_to_phonemes(&query_variant.phonemes, Some(query));
+                out.words.append(&mut result.words);
+            }
+        }
+        out.words.sort();
+        return out;
+    }
+
+    fn similar_to_phonemes(&self, phonemes: &Phonemes, query: Option<&str>) -> SimilarResult {
         let mut out = SimilarResult { words: vec![] };
         for d in &self.dictionaries {
-            let mut result = d.similar(query);
+            let mut result = d.similar_to_phonemes(phonemes, query);
             out.words.append(&mut result.words);
         }
         out.words.sort();
@@ -440,6 +451,13 @@ pub trait Dictionary {
     ///
     /// TODO: Rename "similar" with "rhyme" everywhere, because it's more accurate.
     fn similar(&self, query: &str) -> SimilarResult;
+
+    /// Returns a collection of words that are similar to (rhyme with) the given phonemes.
+    ///
+    /// Args:
+    /// * `phonemes` - the phonemes of the word to match against
+    /// * `query` - a single word of user text (only used to strip self-syns, so optional).
+    fn similar_to_phonemes(&self, phonemes: &Phonemes, query: Option<&str>) -> SimilarResult;
 }
 
 // TODO: Replace this wasteful and crude similarity algorithm.
@@ -554,7 +572,8 @@ impl Dictionary for DictionaryImpl {
             // Select entries in the reverse_list that have the same last syllable.
             // NOTE: This is a "crude approximation" since it excludes some legitimate rhumes.
             // NOTE: This is a linear scan, which sucks, but it's good enough for now.
-            let key_prefix: String = query_variant.similarity_prefix(1 /* syllable */);
+
+            let key_prefix: String = query_variant.phonemes.last_n_syllables(1 /* syllable */);
             for (prefix, (word, variant)) in &self.reverse_list {
                 if !prefix.starts_with(key_prefix.as_str()) {
                     continue;
@@ -578,6 +597,31 @@ impl Dictionary for DictionaryImpl {
         }
 
         // TODO: This mashes everything together, which is not great. Switch to grouped results.
+        result.words.sort();
+        return result;
+    }
+
+    fn similar_to_phonemes(&self, phonemes: &Phonemes, query: Option<&str>) -> SimilarResult {
+        let mut result = SimilarResult { words: vec![] };
+        let key_prefix: String = phonemes.last_n_syllables(1 /* syllable */);
+        for (prefix, (word, variant)) in &self.reverse_list {
+            if !prefix.starts_with(key_prefix.as_str()) {
+                continue;
+            }
+            if query.is_some() && word == query.unwrap() {
+                continue; // Ignore self-syns.
+            }
+
+            // This is an exact lookup for the other word variant.
+            // Not-None because reverse_list should be 1:1 with the main map.
+            let potential_rhyme = self.lookup_variant(&word, *variant).unwrap();
+            let score = phonemes.similarity_score(&potential_rhyme.phonemes);
+            result.words.push(SimilarWord {
+                word: word.clone(),
+                syllables: potential_rhyme.num_syllables(),
+                score: score,
+            });
+        }
         result.words.sort();
         return result;
     }
@@ -849,6 +893,58 @@ mod tests {
                     dict.lookup_variant("acetic", 2).unwrap().phonemes.phonemes,
                     vec!["AH0", "S", "IY1", "T", "IH0", "K"],
                 );
+            }
+        }
+
+        #[test]
+        fn similar_over_multiple_dictionaries() {
+            let mut shelf = Shelf::new();
+            push_dictionary_with_entries(
+                &mut shelf,
+                vec![
+                    "read R EH1 D",
+                    "reade R EH1 D",
+                    "far F AA1 R",
+                    "far's F AA1 R Z",
+                    "our AW1 ER0",
+                    "our(2) AW1 R",
+                    "our(3) AA1 R",
+                ],
+            );
+            push_dictionary_with_entries(
+                &mut shelf,
+                vec![
+                    "red R EH1 D",
+                    "redd R EH1 D",
+                    "sour S AW1 ER0",
+                    "sour(2) S AW1 R",
+                ],
+            );
+
+            let dict = shelf.over_all();
+            {
+                // "far" should be similar to the our(3) variant.
+                let words = dict.similar("far").words;
+                assert_eq!(words.len(), 1);
+                assert_eq!(words[0].word, "our");
+            }
+            {
+                // "red" should have 3 rhyming words from the two dictionaries.
+                let words = dict.similar("red").words;
+                assert_eq!(words.len(), 3);
+                assert_eq!(words[0].word, "read");
+                assert_eq!(words[1].word, "reade");
+                assert_eq!(words[2].word, "redd");
+            }
+            {
+                // "our" should have rhyming words from all variants.
+                // "sour" appears twice because both variants rhyme. (At the moment they aren't
+                // distinguishable because the phonemes aren't passed back.)
+                let words = dict.similar("our").words;
+                assert_eq!(words.len(), 3);
+                assert_eq!(words[0].word, "far");
+                assert_eq!(words[1].word, "sour");
+                assert_eq!(words[2].word, "sour");
             }
         }
     }
