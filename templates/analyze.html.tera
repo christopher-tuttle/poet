@@ -2,10 +2,20 @@
 <html>
 <head>
 	<title>poet</title>
-	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+	<link rel="stylesheet" type="text/css" media="screen" href="static/colors.css">
+	<link rel="stylesheet" type="text/css" media="screen" href="static/analyze.css">
 </head>
 <body>
-	<p><b>Analysis of text:</b></p>
-	<pre> {{ raw_analysis }} </pre>
+	<div id="container">
+		<div> <!-- holds formbox; somehow needed for the flex layout to work -->
+			<div id="formbox">
+				<form action"/analyze" method="post">
+					<textarea name="text", rows=30 cols=80>{{ user_input }}</textarea>
+					<input type="submit" value="Go">
+				</form>
+			</div>
+		</div>
+		<div id="prose">{{ prose_html | safe }}</div>
+	</div>
 </body>
 </html>

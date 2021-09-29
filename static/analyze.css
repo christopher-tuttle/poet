@@ -1,0 +1,24 @@
+/* CSS for the /analyze page */
+
+/* This is the main box at the top of the page.
+ *
+ * On the left it has floating form with textarea, holding the user input.
+ * On the right it has the analyzed prose, which is scrollable.
+ */
+#container {
+	width: 100%;
+	display: flex;
+	vertical-align:top;
+}
+
+/* This is the floating input box, with the form. */
+#formbox {
+	position: sticky;
+	top: 30%;
+}
+
+/* This is the analyzed prose, on the right */
+#prose {
+	margin: 10px;
+}
+

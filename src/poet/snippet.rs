@@ -78,6 +78,17 @@ impl<'a> Line<'a> {
     pub fn has_unknown_words(&self) -> bool {
         self.tokens.iter().filter(|x| x.entry.is_none()).count() > 0
     }
+
+    /// Returns a vector of all the unknown words on the line.
+    pub fn unknown_words(&self) -> Vec<String> {
+        let mut out = vec![];
+        for t in &self.tokens {
+            if t.entry.is_none() {
+                out.push(t.text.clone());
+            }
+        }
+        return out;
+    }
 }
 
 /// Container a block of text (usually a single poem) and its analysis.
@@ -160,6 +171,15 @@ impl<'a> Stanza<'a> {
         self.lines.iter().any(|l| l.has_unknown_words())
     }
 
+    /// Returns a vector of all the unknown words, as terms.
+    pub fn unknown_words(&self) -> Vec<String> {
+        let mut out = vec![];
+        for l in &self.lines {
+            out.append(&mut l.unknown_words());
+        }
+        return out;
+    }
+
     /// Returns `StanzaView`s for all possible interpretations of the `Stanza`.
     ///
     /// This is the cartesean product of all the Tokens that have more than one
@@ -225,12 +245,14 @@ impl<'a> Stanza<'a> {
 /// to see if any of them are correct (or match a pattern, etc.).
 #[derive(Clone)]
 pub struct StanzaView<'a> {
-    stanza: &'a Stanza<'a>,
-    lines: Vec<LineView<'a>>,
+    /// The `Stanza` from which this View was made.
+    pub stanza: &'a Stanza<'a>,
+    /// Views over each line of `stanza`.
+    pub lines: Vec<LineView<'a>>,
 }
 
 impl<'a> StanzaView<'a> {
-    /// Creates a View over the given Stanza.
+    /// Creates a View over the given `Stanza`.
     fn new(s: &'a Stanza) -> StanzaView<'a> {
         let mut result = StanzaView {
             stanza: s,
@@ -266,8 +288,12 @@ impl<'a> std::fmt::Display for StanzaView<'a> {
 /// Presents a view of a `Line` in a `Stanza` where there is at most one `Entry` per word.
 #[derive(Clone)]
 pub struct LineView<'a> {
+    /// The corresponding `Line` for this view.
     line: &'a Line<'a>,
-    indices: Vec<usize>, // Indices into line.tokens[i] to return for get_entry.
+    /// Indices into `line.tokens[i]`, in `(0..line.tokens[i].len())`.
+    ///
+    /// Use `get_entry`, `get_text`, etc. to access the individual words.
+    indices: Vec<usize>,
 }
 
 impl<'a> std::fmt::Debug for LineView<'a> {
@@ -350,6 +376,16 @@ impl<'a> LineView<'a> {
         self.get_entry(self.indices.len() - 1)
     }
 
+    /// Returns the text for the `idx`-th token on the line.
+    pub fn get_text(&self, idx: usize) -> &str {
+        &self.line.tokens[idx].text
+    }
+
+    /// Returns the number of words on the line.
+    pub fn num_words(&self) -> usize {
+        self.indices.len()
+    }
+
     /// Returns the number of syllables in the line.
     ///
     /// This will be an underestimate if `has_unknown_words()`.
@@ -372,6 +408,11 @@ impl<'a> LineView<'a> {
     /// Returns the index of the line in the parent `Stanza` (0..num_lines-1)
     pub fn index(&self) -> usize {
         self.line.index
+    }
+
+    /// Returns the raw / original text of the corresponding `Line`.
+    pub fn raw_text(&self) -> &str {
+        &self.line.raw_text
     }
 
     /// Returns whether there are any words on this line that aren't in the dictionary.
@@ -936,13 +977,13 @@ pub fn get_stanzas_from_text<'a>(input: &str, dict: &'a dyn Dictionary) -> Vec<S
 /// The return value of `Stanza::analyze()`.
 pub struct BestInterpretation<'a> {
     /// The best interpretation. It's safe to assume this is always Some.
-    best: Option<StanzaView<'a>>,
+    pub best: Option<StanzaView<'a>>,
     /// The name of the validator.
-    validator: String,
+    pub validator: String,
     /// Any errors found.
-    errors: Vec<ClassifyError>,
+    pub errors: Vec<ClassifyError>,
     /// The estimated number of interpretations.
-    estimate: (usize, Option<usize>),
+    pub estimate: (usize, Option<usize>),
 }
 
 /// Analyzes the file at `path`, printing the results to the terminal.

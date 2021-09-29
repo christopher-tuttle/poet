@@ -1,4 +1,21 @@
-/* Thank you Rust for this nice color. */
+/* Thank you Rust for these nice colors. */
+.entry_aux {
+	color: #999999;
+}
+.error_header {
+	font-size: larger;
+	font-weight: bold;
+}
+.line_warning {
+	background-color: #ffffcc;
+}
+.missing {
+	color: #c82829;
+}
 .phonemes {
 	color: #993399;
+}
+.stanza_warning {
+	font-weight: bold;
+	color: #c82829;
 }
