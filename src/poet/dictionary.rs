@@ -35,7 +35,8 @@ use std::error::Error;
 use std::fmt;
 
 /// Represents the phonemes of a word, in ARPABET / cmudict format.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(crate = "rocket::serde")]
 pub struct Phonemes {
     /// The individual phonemes as listed, in the original order e.g. `["SH", "R", "IH1", "M", "P"]`.
     pub phonemes: Vec<String>,
@@ -387,6 +388,9 @@ pub struct SimilarWord {
 
     /// Larger scores represent higher similarity.
     pub score: i32,
+
+    /// The word's phonemes.
+    pub phonemes: Phonemes,
 }
 
 /// Return value for Dictionary::similar(), holding all the results.
@@ -592,6 +596,7 @@ impl Dictionary for DictionaryImpl {
                     word: word.clone(),
                     syllables: potential_rhyme.num_syllables(),
                     score: score,
+                    phonemes: potential_rhyme.phonemes.clone(),
                 });
             }
         }
@@ -620,6 +625,7 @@ impl Dictionary for DictionaryImpl {
                 word: word.clone(),
                 syllables: potential_rhyme.num_syllables(),
                 score: score,
+                phonemes: potential_rhyme.phonemes.clone(),
             });
         }
         result.words.sort();
@@ -927,6 +933,7 @@ mod tests {
                 let words = dict.similar("far").words;
                 assert_eq!(words.len(), 1);
                 assert_eq!(words[0].word, "our");
+                assert_eq!(words[0].phonemes.phonemes, vec!["AA1", "R"]);
             }
             {
                 // "red" should have 3 rhyming words from the two dictionaries.
@@ -935,16 +942,18 @@ mod tests {
                 assert_eq!(words[0].word, "read");
                 assert_eq!(words[1].word, "reade");
                 assert_eq!(words[2].word, "redd");
+                assert_eq!(words[2].phonemes.phonemes, vec!["R", "EH1", "D"]);
             }
             {
                 // "our" should have rhyming words from all variants.
-                // "sour" appears twice because both variants rhyme. (At the moment they aren't
-                // distinguishable because the phonemes aren't passed back.)
+                // "sour" appears twice because both variants rhyme.
                 let words = dict.similar("our").words;
                 assert_eq!(words.len(), 3);
                 assert_eq!(words[0].word, "far");
                 assert_eq!(words[1].word, "sour");
+                assert_eq!(words[1].phonemes.phonemes, vec!["S", "AW1", "ER0"]);
                 assert_eq!(words[2].word, "sour");
+                assert_eq!(words[2].phonemes.phonemes, vec!["S", "AW1", "R"]);
             }
         }
     }
@@ -1066,6 +1075,30 @@ mod tests {
         // "sour" appears twice because both variants rhyme. (At the moment they aren't
         // distinguishable because the phonemes aren't passed back.)
         assert_similar_terms_are(&dict, "our", &vec!["far", "sour", "sour"]);
+    }
+
+    #[test]
+    fn test_similar_returns_phonemes() {
+        let values = vec![
+            "program P R OW1 G R AE2 M",
+            "programme P R OW1 G R AE2 M",
+            "telegram T EH1 L AH0 G R AE2 M",
+        ];
+        let mut dict = DictionaryImpl::new();
+        dict.insert_all(&values);
+
+        let words = dict.similar("programme").words;
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].word, "program");
+        assert_eq!(
+            words[0].phonemes.phonemes,
+            vec!["P", "R", "OW1", "G", "R", "AE2", "M"]
+        );
+        assert_eq!(words[1].word, "telegram");
+        assert_eq!(
+            words[1].phonemes.phonemes,
+            vec!["T", "EH1", "L", "AH0", "G", "R", "AE2", "M"]
+        );
     }
 
     #[test]
