@@ -1,0 +1,29 @@
+/* CSS for the /lookup page */
+body {
+	font-family:sans-serif;
+}
+
+#results {
+	border: 1px solid #ddd;
+	text-align: left;
+	padding-left: 3px;
+	padding-right: 10px;
+}
+
+#results td {
+	padding-left: 3px;
+	padding-right: 10px;
+}
+
+#results th {
+	cursor: pointer;
+}
+
+#results tr:nth-child(even) {
+	background-color: #f2f2f2;
+}
+
+.phonemes {
+	font-family: monospace;
+	padding-right: 10px;
+}

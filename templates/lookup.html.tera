@@ -2,27 +2,135 @@
 <html>
 <head>
 	<title>poet</title>
-	<link rel="stylesheet" type="text/css" media="screen" href="static/main.css">
+	<link rel="stylesheet" type="text/css" media="screen" href="static/colors.css">
+	<link rel="stylesheet" type="text/css" media="screen" href="static/lookup.css">
 </head>
 <body>
-	<p>The query was <b> {{ query }} </b></p>
+
+<script>
+/* Javascript table sorting.
+   Souced from: https://www.w3schools.com/howto/howto_js_sort_table.asp
+   Modified slightly to enable sorting by number, following the pattern
+   on a related w3schools page. Kudos to them!
+
+   TODO: Replace this with sorting on the server side, because this thing is really, really slow.
+   Server-side sorting will also mean that the &num=X values can be sorted before filtering, so
+   the results will also be more correct.
+*/
+function sortTable(n,by_number) {
+  var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+  table = document.getElementById("results");
+  switching = true;
+  // Set the sorting direction to ascending:
+  // Hack: Default to descending sort by numerics.
+  if (by_number) {
+    dir = "desc";
+  } else {
+    dir = "asc";
+  }
+  /* Make a loop that will continue until
+  no switching has been done: */
+  while (switching) {
+    // Start by saying: no switching is done:
+    switching = false;
+    rows = table.rows;
+    /* Loop through all table rows (except the
+    first, which contains table headers): */
+    for (i = 1; i < (rows.length - 1); i++) {
+      // Start by saying there should be no switching:
+      shouldSwitch = false;
+      /* Get the two elements you want to compare,
+      one from current row and one from the next: */
+      x = rows[i].getElementsByTagName("TD")[n];
+      y = rows[i + 1].getElementsByTagName("TD")[n];
+      /* Check if the two rows should switch place,
+      based on the direction, asc or desc: */
+      if (dir == "asc") {
+	if (by_number) {
+	  if (Number(x.innerHTML) > Number(y.innerHTML)) {
+	    shouldSwitch = true;
+	    break;
+	  }
+	} else {
+		if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+		  // If so, mark as a switch and break the loop:
+		  shouldSwitch = true;
+		  break;
+		}
+	}
+      } else if (dir == "desc") {
+	if (by_number) {
+	  if (Number(x.innerHTML) < Number(y.innerHTML)) {
+	    shouldSwitch = true;
+	    break;
+	  }
+	} else {
+        if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+          // If so, mark as a switch and break the loop:
+          shouldSwitch = true;
+          break;
+        }
+		}
+      }
+    }
+    if (shouldSwitch) {
+      /* If a switch has been marked, make the switch
+      and mark that a switch has been done: */
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+      // Each time a switch is done, increase this count by 1:
+      switchcount ++;
+    } else {
+      /* If no switching has been done AND the direction is "asc",
+      set the direction to "desc" and run the while loop again. */
+      if (switchcount == 0) {
+	if (by_number) {  // Added this case for default desc sort by number.
+	  if (dir == "desc") {
+	    dir = "asc";
+	    switching = true;
+	  }
+        } else {
+          if (dir == "asc") {
+            dir = "desc";
+            switching = true;
+	  }
+	} 
+      }
+    }
+  }
+}
+</script>
+
+        <p><em>Look up a single word:</em>
+        <form action="/lookup">
+	  <input id="term" name="term" type=text value="{{ query }}">
+          <input type="submit" value="Lookup">
+        </form>
+
 	{% if entry_info %}
+		<p>The query was <b> {{ query }} </b></p>
 		<p>Found: <code>{{ entry_info }}</code></p>
-		{% for label, group in word_groups %}
-			<h2>{{ label }}</h2>
-			<ul>
-			{% for word in group %}
-				<li><b>{{word.word}}</b> (score {{word.score}})</li>
-			{% endfor %}
-			</ul>
-		{% endfor %}
-		<p>Potential rhymes:
+		<p>Showing {{ num_returned }} of {{ num_found }} potential results.
+		Add <span style="font-family: monospace">&amp;num=N</span> to the query adjust the limit.</span></p>
+
+		<table id="results">
+			<tr>
+				<th onclick="sortTable(0,false)">Word</th>
+				<th onclick="sortTable(1,false)">Phonemes</th>
+				<th onclick="sortTable(2,true)">Syllables</th>
+				<th onclick="sortTable(3,true)">Similarity</th>
+			</tr>
 			{% for word in similar_words %}
-				{{ word }}, 
+			<tr>
+				<td>{{word.word}}</td>
+				<td><span class="phonemes">{{word.phonemes}}</span></td>
+				<td>{{word.syllables}}</td>
+				<td>{{word.score}}</td>
+			</tr>
 			{% endfor %}
-	  	</p>
+		</table>
 	{% else %}
-	<p><b><font color=red>Word not found</font></b></p>
+	<p><b><font color=red>{{ query }} not found</font></b></p>
 	{% endif %}
 
 </body>
