@@ -207,6 +207,22 @@ impl Entry {
         return result;
     }
 
+    /// Constructs an Entry from the given word and phonetic sequence.
+    ///
+    /// ```
+    /// let entry = Entry::from_parts("shrimp", "SH R IH1 M P");
+    /// ```
+    pub fn from_parts(term: &str, phonemes: &str) -> Entry {
+        let tokens: Vec<&str> = phonemes.trim().split_whitespace().collect();
+        let mut phonemes = Phonemes::new();
+        phonemes.from_slice(&tokens);
+        return Entry {
+            word: String::from(term),
+            phonemes: phonemes,
+            variant: 1,
+        };
+    }
+
     /// Returns a string that, when used as a sort key, places similar words together.
     fn similarity_key(&self) -> String {
         // NOTE: This is mostly used as an internal data structure hack that could
@@ -692,6 +708,18 @@ mod tests {
             3
         );
         assert_eq!(Entry::new("gdp G IY1 D IY1 P IY1").num_syllables(), 3);
+    }
+
+    #[test]
+    fn test_entry_from_parts() {
+        let entry = Entry::from_parts("aardvark", " AA1 R D V AA2 R K  ");
+        assert_eq!(&entry.word, "aardvark");
+        assert_eq!(entry.variant, 1);
+        assert_eq!(entry.num_syllables(), 2);
+        assert_eq!(
+            entry.phonemes.phonemes,
+            vec!["AA1", "R", "D", "V", "AA2", "R", "K"]
+        );
     }
 
     #[test]
