@@ -131,6 +131,11 @@ function sortTable(n,by_number) {
 		</table>
 	{% else %}
 	<p><b><font color=red>{{ query }} not found</font></b></p>
+	<p>You can try to fetch this and other words from RhymeZone:</p>
+	<form action="/datamuse" method="post">
+		<textarea name="words" rows=30 cols=50>{{ query }}</textarea>
+		<input type="submit" value="Go">
+	</form>
 	{% endif %}
 
 </body>

@@ -138,6 +138,39 @@ fn api_lookup(state: &State<ServerState>, term: &str) -> String {
     }
 }
 
+/// A `serde` template for `/datamuse` to provide a list of words from an input form.
+#[derive(FromForm)]
+struct DatamusePostInput<'a> {
+    /// A list of whitespace-separated words to look up.
+    words: &'a str,
+}
+
+/// Handles a POST request to /datamuse to look up all the words in the input.
+#[post("/datamuse", data = "<req>")]
+async fn datamuse(_state: &State<ServerState>, req: Form<DatamusePostInput<'_>>) -> String {
+    let datamuse = client::datamuse::Client::new();
+
+    let mut out = String::with_capacity(1000);
+    out.push_str("# Found these entries. You can add them to 'userdict.dict'.\n");
+    for word in req.words.split_whitespace().take(100) {
+        match datamuse.get_phonemes(&word).await {
+            Ok(Some(entry)) => {
+                out.push_str(&format!("{} {}\n", &entry.word, &entry.phonemes));
+            }
+            Ok(None) => {
+                out.push_str(&format!("# fetch of {} returned nothing\n", &word));
+            }
+            Err(e) => {
+                out.push_str(&format!(
+                    "# fetch of {} failed with error: {:?}\n",
+                    &word, &e
+                ));
+            }
+        }
+    }
+    return out;
+}
+
 /// Describes the parameters and types for /analyze POST requests.
 ///
 /// This is used by Rocket to validate incoming requests and to pass the values to
@@ -427,7 +460,7 @@ pub async fn run(shelf: dictionary::Shelf) {
             shelf: Mutex::new(shelf),
         })
         .attach(Template::fairing())
-        .mount("/", routes![index, lookup, analyze, api_lookup])
+        .mount("/", routes![index, lookup, analyze, api_lookup, datamuse])
         .mount("/static", rocket::fs::FileServer::from("static/"))
         .launch()
         .await;

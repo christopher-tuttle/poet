@@ -17,5 +17,11 @@
 		</div>
 		<div id="prose">{{ prose_html | safe }}</div>
 	</div>
+
+	<p><em>If there were unknown words, you can try and fetch them from RhymeZone:</em></p>
+	<form action="/datamuse" method="post">
+		<textarea name="words" rows=20 cols=50>{{ unknown_words }}</textarea>
+		<input type="submit" value="Go">
+	</form>
 </body>
 </html>
